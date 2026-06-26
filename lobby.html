@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MTG App — Lobby</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; display: flex; flex-direction: column; }
+.topbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: #0a0a0a; border-bottom: 1px solid #1e1e1e; }
+.logo { font-size: 15px; font-weight: 600; color: #fff; text-decoration: none; display: flex; align-items: center; gap: 5px; }
+.logo span { color: #a78bfa; }
+.spacer { flex: 1; }
+.room-box { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid #2a2a2a; border-radius: 6px; background: #111; cursor: pointer; }
+.room-code { font-size: 12px; color: #888; font-family: monospace; letter-spacing: 0.08em; }
+.main { display: grid; grid-template-columns: 1fr 300px; flex: 1; }
+.left { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+.right { border-left: 1px solid #1a1a1a; padding: 20px 16px; display: flex; flex-direction: column; gap: 16px; background: #0a0a0a; }
+.s-label { font-size: 11px; color: #444; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+.s-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.s-action { font-size: 11px; color: #555; cursor: pointer; }
+.s-action:hover { color: #888; }
+.player-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.slot { border-radius: 10px; border: 1px solid #1e1e1e; background: #111; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-height: 120px; }
+.slot.you { border-color: #1e3a6e; background: #0d1628; }
+.slot.filled { border-color: #1e2a1e; background: #0d1410; }
+.slot.waiting { border: 1px dashed #1e1e1e; background: #0d0d0d; align-items: center; justify-content: center; }
+.slot-top { display: flex; align-items: center; gap: 10px; }
+.av { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }
+.av-you { background: #0f1a2e; border: 1px solid #1e3a6e; color: #60a5fa; }
+.av-p2 { background: #0f1e10; border: 1px solid #1e3a1e; color: #4ade80; }
+.av-p3 { background: #1e120f; border: 1px solid #3a1e10; color: #fb923c; }
+.slot-name { font-size: 13px; font-weight: 500; color: #e0e0e0; }
+.slot-sub { font-size: 11px; color: #444; margin-top: 2px; }
+.badge { font-size: 9px; padding: 2px 7px; border-radius: 10px; }
+.badge-you { background: #0f1a2e; border: 1px solid #1e3a6e; color: #60a5fa; }
+.badge-ready { background: #0f1e10; border: 1px solid #1e4a1e; color: #4ade80; }
+.badge-wait { background: #1a1a1a; border: 1px solid #2a2a2a; color: #555; }
+.deck-chip { display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 6px; background: #0d0d0d; border: 1px solid #1e1e1e; cursor: pointer; }
+.deck-chip:hover { border-color: #333; }
+.pips { display: flex; gap: 3px; }
+.pip { width: 10px; height: 10px; border-radius: 50%; border: 1px solid; }
+.pip-g { background: #1a4a1a; border-color: #2d6a2d; }
+.pip-u { background: #1a1a4a; border-color: #2d2d6a; }
+.pip-r { background: #4a1a1a; border-color: #6a2d2d; }
+.pip-b { background: #1a1a1a; border-color: #4a4a4a; }
+.pip-w { background: #3a3a1a; border-color: #5a5a2d; }
+.deck-name { font-size: 11px; color: #888; flex: 1; }
+.deck-change { font-size: 10px; color: #444; }
+.waiting-text { font-size: 12px; color: #333; }
+.invite-btn { display: flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 5px; background: #111; border: 1px solid #222; margin-top: 6px; cursor: pointer; font-size: 10px; color: #555; }
+.variant-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.vcard { border-radius: 8px; border: 1px solid #1e1e1e; background: #111; padding: 10px 8px; cursor: pointer; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 5px; transition: border-color 0.1s; }
+.vcard:hover { border-color: #333; }
+.vcard.sel { border-color: #4c3a8a; background: #14102a; }
+.v-icon { font-size: 18px; }
+.v-name { font-size: 10px; color: #666; }
+.vcard.sel .v-name { color: #a78bfa; }
+.v-players { font-size: 9px; color: #333; }
+.opt-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 7px; background: #111; border: 1px solid #1e1e1e; }
+.opt-label { font-size: 12px; color: #888; }
+.opt-sub { font-size: 10px; color: #333; margin-top: 1px; }
+.toggle { width: 34px; height: 18px; border-radius: 10px; background: #1e1e1e; border: 1px solid #333; cursor: pointer; position: relative; }
+.toggle.on { background: #2563eb; border-color: #3b82f6; }
+.toggle-dot { width: 12px; height: 12px; border-radius: 50%; background: #444; position: absolute; top: 2px; left: 3px; transition: left 0.15s; }
+.toggle.on .toggle-dot { left: 17px; background: #fff; }
+.sp-pill { display: flex; border-radius: 6px; border: 1px solid #222; overflow: hidden; }
+.sp-opt { padding: 4px 10px; font-size: 10px; color: #444; cursor: pointer; background: #111; }
+.sp-opt:hover { color: #888; }
+.sp-opt.on { background: #1e1e1e; color: #ccc; }
+.chat-msgs { flex: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.msg { display: flex; flex-direction: column; gap: 2px; }
+.msg-who { font-size: 10px; color: #444; }
+.msg-who.you { color: #2563eb; }
+.msg-who.sys { color: #4c3a8a; }
+.msg-text { font-size: 12px; color: #888; line-height: 1.4; }
+.msg-text.sys { color: #5a4a7a; font-style: italic; }
+.chat-input-row { display: flex; gap: 6px; padding-top: 8px; border-top: 1px solid #1a1a1a; }
+.chat-in { flex: 1; padding: 6px 10px; border-radius: 6px; background: #111; border: 1px solid #222; color: #ccc; font-size: 12px; outline: none; font-family: inherit; }
+.chat-send { padding: 6px 10px; border-radius: 6px; border: 1px solid #222; background: #111; color: #555; font-size: 11px; cursor: pointer; }
+.footer { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: #0a0a0a; border-top: 1px solid #1a1a1a; }
+.ready-dots { display: flex; gap: 4px; }
+.rd { width: 8px; height: 8px; border-radius: 50%; background: #1a1a1a; border: 1px solid #222; }
+.rd.on { background: #1a4a1a; border-color: #2d6a2d; }
+.ready-txt { font-size: 12px; color: #555; }
+.ready-txt span { color: #4ade80; }
+.footer-btns { display: flex; gap: 8px; }
+.ready-btn { padding: 9px 20px; border-radius: 7px; background: #0f1e10; border: 1px solid #1e4a1e; color: #4ade80; font-size: 12px; cursor: pointer; }
+.start-btn { padding: 9px 24px; border-radius: 7px; background: #14102a; border: 1px solid #4c3a8a; color: #a78bfa; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; }
+.start-btn:hover { background: #1e1640; }
+.start-btn.go { background: #2563eb; border-color: #3b82f6; color: #fff; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="index.html" class="logo"><span>✦</span> MTG App</a>
+  <div class="spacer"></div>
+  <div class="room-box" onclick="copyRoom()">
+    <span class="room-code" id="room-code">Loading...</span>
+    <span style="font-size:12px;color:#444">⎘</span>
+  </div>
+</div>
+
+<div class="main">
+  <div class="left">
+    <div>
+      <div class="s-head">
+        <span class="s-label">Players</span>
+        <span class="s-action" onclick="copyRoom()">+ Invite via link</span>
+      </div>
+      <div class="player-grid">
+        <div class="slot you">
+          <div class="slot-top">
+            <div class="av av-you">YO</div>
+            <div>
+              <div class="slot-name">You <span class="badge badge-you">host</span></div>
+              <div class="slot-sub">Just now</div>
+            </div>
+          </div>
+          <div class="deck-chip" onclick="window.location='deck-builder.html'">
+            <div class="pips"><div class="pip pip-g"></div><div class="pip pip-u"></div></div>
+            <span class="deck-name">Simic Stompy</span>
+            <span class="deck-change">Change</span>
+          </div>
+        </div>
+        <div class="slot filled">
+          <div class="slot-top">
+            <div class="av av-p2">AL</div>
+            <div>
+              <div class="slot-name">Alex <span class="badge badge-ready">Ready</span></div>
+              <div class="slot-sub">2 min ago</div>
+            </div>
+          </div>
+          <div class="deck-chip" style="cursor:default">
+            <div class="pips"><div class="pip pip-r"></div><div class="pip pip-b"></div></div>
+            <span class="deck-name">Rakdos Sacrifice</span>
+          </div>
+        </div>
+        <div class="slot filled">
+          <div class="slot-top">
+            <div class="av av-p3">SA</div>
+            <div>
+              <div class="slot-name">Sam <span class="badge badge-wait">Not ready</span></div>
+              <div class="slot-sub">1 min ago</div>
+            </div>
+          </div>
+          <div class="deck-chip" style="cursor:default">
+            <div class="pips"><div class="pip pip-w"></div><div class="pip pip-u"></div><div class="pip pip-b"></div></div>
+            <span class="deck-name">Esper Control</span>
+          </div>
+        </div>
+        <div class="slot waiting">
+          <div class="waiting-text">Waiting for player 4</div>
+          <div class="invite-btn" onclick="copyRoom()">⎘ Copy invite link</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="s-label">Game Variant</div>
+      <div class="variant-grid">
+        <div class="vcard" onclick="selVariant(this)"><div class="v-icon">⚔</div><div class="v-name">Commander</div><div class="v-players">2–4p</div></div>
+        <div class="vcard sel" onclick="selVariant(this)"><div class="v-icon">⬡</div><div class="v-name">Planechase</div><div class="v-players">2–4p</div></div>
+        <div class="vcard" onclick="selVariant(this)"><div class="v-icon">⚡</div><div class="v-name">2HG</div><div class="v-players">4p</div></div>
+        <div class="vcard" onclick="selVariant(this)"><div class="v-icon">◈</div><div class="v-name">Oathbreaker</div><div class="v-players">2–4p</div></div>
+        <div class="vcard" onclick="selVariant(this)"><div class="v-icon">☠</div><div class="v-name">Horde</div><div class="v-players">1–4p</div></div>
+        <div class="vcard" onclick="selVariant(this)"><div class="v-icon">▲</div><div class="v-name">Archenemy</div><div class="v-players">1v3</div></div>
+        <div class="vcard" onclick="selVariant(this)"><div class="v-icon">◻</div><div class="v-name">Standard</div><div class="v-players">2p</div></div>
+        <div class="vcard" onclick="selVariant(this)"><div class="v-icon">◑</div><div class="v-name">Draft</div><div class="v-players">2–8p</div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="s-label">Options</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="opt-row">
+          <div><div class="opt-label">Starting life</div></div>
+          <div class="sp-pill">
+            <div class="sp-opt" onclick="setOpt(this)">20</div>
+            <div class="sp-opt on" onclick="setOpt(this)">40</div>
+            <div class="sp-opt" onclick="setOpt(this)">60</div>
+          </div>
+        </div>
+        <div class="opt-row">
+          <div><div class="opt-label">Allow spectators</div><div class="opt-sub">Others can watch</div></div>
+          <div class="toggle on" id="t1" onclick="this.classList.toggle('on')"><div class="toggle-dot"></div></div>
+        </div>
+        <div class="opt-row">
+          <div><div class="opt-label">Commander damage</div><div class="opt-sub">Track 21-damage eliminations</div></div>
+          <div class="toggle on" id="t2" onclick="this.classList.toggle('on')"><div class="toggle-dot"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="s-label">Pre-game chat</div>
+    <div class="chat-msgs" id="chat-msgs">
+      <div class="msg"><span class="msg-who sys">System</span><span class="msg-text sys">Room created. Share the link to invite players.</span></div>
+      <div class="msg"><span class="msg-who sys">System</span><span class="msg-text sys">Alex joined the room.</span></div>
+      <div class="msg"><span class="msg-who">Alex</span><span class="msg-text">Ready when you are!</span></div>
+      <div class="msg"><span class="msg-who sys">System</span><span class="msg-text sys">Sam joined the room.</span></div>
+      <div class="msg"><span class="msg-who">Sam</span><span class="msg-text">give me a sec picking a deck</span></div>
+      <div class="msg"><span class="msg-who you">You</span><span class="msg-text">no rush!</span></div>
+    </div>
+    <div class="chat-input-row">
+      <input class="chat-in" id="chat-in" placeholder="Say something..." onkeydown="if(event.key==='Enter')sendChat()">
+      <button class="chat-send" onclick="sendChat()">Send</button>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <div style="display:flex;align-items:center;gap:10px">
+    <div class="ready-dots">
+      <div class="rd on"></div>
+      <div class="rd on"></div>
+      <div class="rd"></div>
+      <div class="rd"></div>
+    </div>
+    <span class="ready-txt"><span>2</span> of 4 ready</span>
+  </div>
+  <div class="footer-btns">
+    <button class="ready-btn" onclick="toggleReady(this)">Mark as ready</button>
+    <a href="game.html" class="start-btn">Start game</a>
+  </div>
+</div>
+
+<script>
+var roomId = 'mtg-' + Math.random().toString(36).substr(2,6);
+document.getElementById('room-code').textContent = roomId;
+
+function copyRoom() {
+  var url = window.location.origin + window.location.pathname + '?room=' + roomId;
+  navigator.clipboard.writeText(url).catch(function(){});
+  var el = document.getElementById('room-code');
+  var orig = el.textContent;
+  el.textContent = 'Copied!';
+  setTimeout(function(){ el.textContent = orig; }, 1500);
+}
+
+function selVariant(el) {
+  document.querySelectorAll('.vcard').forEach(function(v){ v.classList.remove('sel'); });
+  el.classList.add('sel');
+}
+
+function setOpt(el) {
+  el.closest('.sp-pill').querySelectorAll('.sp-opt').forEach(function(o){ o.classList.remove('on'); });
+  el.classList.add('on');
+}
+
+function toggleReady(btn) {
+  btn.textContent = btn.textContent === 'Mark as ready' ? 'Unready' : 'Mark as ready';
+}
+
+function sendChat() {
+  var inp = document.getElementById('chat-in');
+  var txt = inp.value.trim();
+  if (!txt) return;
+  var msgs = document.getElementById('chat-msgs');
+  var div = document.createElement('div');
+  div.className = 'msg';
+  div.innerHTML = '<span class="msg-who you">You</span><span class="msg-text">' + txt + '</span>';
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  inp.value = '';
+}
+</script>
+</body>
+</html>
