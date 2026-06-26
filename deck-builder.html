@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MTG App — Deck Builder</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.topbar { display: flex; align-items: center; gap: 8px; padding: 9px 14px; background: #080808; border-bottom: 1px solid #1a1a1a; flex-shrink: 0; }
+.logo { font-size: 14px; font-weight: 700; color: #a78bfa; text-decoration: none; }
+.sep { color: #222; font-size: 14px; }
+.tb-title { font-size: 13px; color: #555; }
+.spacer { flex: 1; }
+.tb-btn { padding: 5px 13px; border-radius: 6px; border: 1px solid #222; background: #111; color: #666; font-size: 11px; cursor: pointer; }
+.tb-btn:hover { border-color: #333; color: #aaa; }
+.tb-btn.primary { background: #a78bfa; border-color: #a78bfa; color: #0a0a0a; font-weight: 600; }
+.tb-btn.primary:hover { background: #c4b5fd; }
+.builder { display: grid; grid-template-columns: 240px 1fr 260px; flex: 1; overflow: hidden; min-height: 0; }
+
+/* SEARCH PANEL */
+.search-panel { border-right: 1px solid #1a1a1a; display: flex; flex-direction: column; background: #0a0a0a; overflow: hidden; }
+.sp-tabs { display: flex; border-bottom: 1px solid #1a1a1a; }
+.sp-tab { flex: 1; padding: 8px 0; text-align: center; font-size: 11px; color: #444; cursor: pointer; border-bottom: 2px solid transparent; }
+.sp-tab.active { color: #a78bfa; border-bottom-color: #a78bfa; }
+.search-box { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid #1a1a1a; }
+.search-input { flex: 1; padding: 6px 9px; border-radius: 6px; background: #111; border: 1px solid #222; color: #ccc; font-size: 12px; outline: none; font-family: inherit; }
+.search-input:focus { border-color: #3a2d6a; }
+.search-input::placeholder { color: #333; }
+.filter-row { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid #1a1a1a; flex-wrap: wrap; }
+.fp { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 2px solid transparent; font-size: 10px; font-weight: 700; }
+.fp:hover { opacity: 0.8; }
+.fp.active { border-color: #fff; }
+.fp-w { background: #2a2a14; color: #d4c97a; }
+.fp-u { background: #0f1422; color: #5a8adf; }
+.fp-b { background: #1a1018; color: #9a7ab4; }
+.fp-r { background: #221010; color: #df5a5a; }
+.fp-g { background: #101a10; color: #5aaf5a; }
+.fp-c { background: #1a1a1a; color: #888; }
+.type-filters { display: flex; gap: 4px; padding: 0 12px 8px; flex-wrap: wrap; border-bottom: 1px solid #1a1a1a; }
+.tf { padding: 3px 9px; border-radius: 10px; background: #111; border: 1px solid #1e1e1e; font-size: 10px; color: #444; cursor: pointer; }
+.tf:hover { border-color: #333; color: #888; }
+.tf.active { background: #14102a; border-color: #3a2d6a; color: #a78bfa; }
+.card-results { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+.card-results::-webkit-scrollbar { width: 4px; }
+.card-results::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+.card-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; transition: background 0.08s; }
+.card-row:hover { background: #111; border-color: #1e1e1e; }
+.card-row.in-deck { background: #0f1a10; border-color: #1e3a1e; }
+.cr-thumb { width: 28px; height: 39px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; border: 1px solid #333; }
+.cr-t-g { background: #0f1a0f; border-color: #1e3a1e; }
+.cr-t-u { background: #0f1422; border-color: #1e2a4a; }
+.cr-t-r { background: #1a1010; border-color: #3a1e1e; }
+.cr-t-w { background: #1e1e10; border-color: #3a3a1e; }
+.cr-t-b { background: #120f18; border-color: #2a1a3a; }
+.cr-t-a { background: #181818; border-color: #333; }
+.cr-t-land { background: #1a1410; border-color: #3a2a10; }
+.cr-info { flex: 1; min-width: 0; }
+.cr-name { font-size: 11px; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cr-type { font-size: 9px; color: #444; margin-top: 1px; }
+.cr-mana { font-size: 10px; color: #555; flex-shrink: 0; font-family: monospace; }
+.cr-add { width: 20px; height: 20px; border-radius: 4px; background: #111; border: 1px solid #222; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #444; cursor: pointer; flex-shrink: 0; }
+.cr-add:hover { border-color: #4c3a8a; color: #a78bfa; }
+
+/* DECK PANEL */
+.deck-panel { display: flex; flex-direction: column; border-right: 1px solid #1a1a1a; overflow: hidden; }
+.deck-header { padding: 12px 16px 10px; border-bottom: 1px solid #1a1a1a; display: flex; flex-direction: column; gap: 6px; }
+.deck-name-row { display: flex; align-items: center; gap: 8px; }
+.deck-name-input { font-size: 17px; font-weight: 600; color: #e0e0e0; background: none; border: none; outline: none; font-family: inherit; flex: 1; }
+.deck-name-input::placeholder { color: #333; }
+.format-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; background: #14102a; border: 1px solid #3a2d6a; color: #a78bfa; }
+.deck-meta { display: flex; gap: 8px; align-items: center; }
+.color-pips { display: flex; gap: 3px; }
+.cpip { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #222; }
+.cpip-g { background: #1a4a1a; border-color: #2a6a2a; }
+.cpip-u { background: #1a1a4a; border-color: #2a2a6a; }
+.deck-count { font-size: 11px; color: #555; }
+.deck-count span { color: #888; }
+.import-row { display: flex; gap: 6px; padding: 10px 16px; border-bottom: 1px solid #1a1a1a; }
+.imp-btn { padding: 5px 12px; border-radius: 5px; border: 1px solid #222; background: #111; color: #666; font-size: 11px; cursor: pointer; }
+.imp-btn:hover { border-color: #333; color: #aaa; }
+.imp-btn.active { border-color: #3a2d6a; background: #14102a; color: #a78bfa; }
+.deck-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.deck-body::-webkit-scrollbar { width: 4px; }
+.deck-body::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
+.deck-section { margin-bottom: 16px; }
+.ds-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.ds-label { font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 0.06em; }
+.ds-count { font-size: 10px; color: #333; }
+.deck-card-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #141414; }
+.dcr-qty { width: 20px; text-align: center; font-size: 11px; color: #555; flex-shrink: 0; }
+.dcr-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dot-g { background: #1a4a1a; } .dot-u { background: #1a1a4a; } .dot-r { background: #4a1a1a; }
+.dot-w { background: #3a3a1a; } .dot-b { background: #2a1a3a; } .dot-a { background: #2a2a2a; }
+.dot-land { background: #2a1a0a; }
+.dcr-name { flex: 1; font-size: 12px; color: #ccc; cursor: pointer; }
+.dcr-name:hover { color: #a78bfa; }
+.dcr-mana { font-size: 10px; color: #333; font-family: monospace; }
+.dcr-remove { width: 18px; height: 18px; border-radius: 3px; background: none; border: none; color: #2a2a2a; font-size: 13px; cursor: pointer; }
+.dcr-remove:hover { color: #ef4444; background: #1a0a0a; }
+.deck-stats { padding: 12px 16px; border-top: 1px solid #1a1a1a; display: flex; flex-direction: column; gap: 8px; }
+.validation { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 6px; font-size: 11px; }
+.val-ok { background: #0f1e10; border: 1px solid #1e3a1e; color: #4ade80; }
+.val-warn { background: #1e1408; border: 1px solid #3a2a10; color: #fbbf24; }
+.stat-row { display: flex; justify-content: space-between; font-size: 11px; }
+.stat-lbl { color: #444; } .stat-val { color: #777; }
+.mana-curve { display: flex; align-items: flex-end; gap: 3px; height: 32px; }
+.mc-bar-w { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; }
+.mc-bar { width: 100%; border-radius: 2px 2px 0 0; background: #2a2050; }
+.mc-lbl { font-size: 8px; color: #222; }
+.import-panel { display: none; flex: 1; flex-direction: column; }
+.import-panel.visible { display: flex; }
+.deck-list-view.hidden { display: none; }
+.deck-list-view { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+.import-textarea { flex: 1; background: #0d0d0d; border: none; outline: none; color: #888; font-size: 12px; font-family: monospace; resize: none; padding: 16px; line-height: 1.6; }
+.import-textarea::placeholder { color: #2a2a2a; }
+.import-actions { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid #1a1a1a; }
+
+/* PREVIEW PANEL */
+.preview-panel { display: flex; flex-direction: column; background: #0a0a0a; overflow: hidden; }
+.card-preview { padding: 16px; border-bottom: 1px solid #1a1a1a; display: flex; flex-direction: column; gap: 10px; }
+.preview-card { width: 140px; border-radius: 8px; background: #111; border: 1px solid #2a2050; overflow: hidden; margin: 0 auto; }
+.pc-art { width: 100%; height: 90px; display: flex; align-items: center; justify-content: center; position: relative; }
+.pc-art-glyph { font-size: 36px; opacity: 0.15; color: #a78bfa; }
+.pc-gradient { position: absolute; bottom: 0; left: 0; right: 0; height: 28px; background: linear-gradient(transparent, #111); }
+.pc-name-bar { padding: 5px 7px 3px; background: #111; display: flex; justify-content: space-between; align-items: center; }
+.pc-name { font-size: 11px; font-weight: 500; color: #e0e0e0; }
+.pc-cost { font-size: 10px; color: #a78bfa; font-family: monospace; }
+.pc-type { padding: 3px 7px; background: #0f1a10; font-size: 9px; color: #2a5a2a; border-top: 1px solid #1a2a1a; border-bottom: 1px solid #1a2a1a; }
+.pc-text { padding: 6px 7px 8px; font-size: 9px; color: #666; line-height: 1.5; }
+.preview-meta { display: flex; flex-direction: column; gap: 5px; }
+.pm-row { display: flex; justify-content: space-between; font-size: 11px; }
+.pm-lbl { color: #444; } .pm-val { color: #888; }
+.pm-val.legal { color: #4ade80; }
+.similar-section { padding: 12px 16px; flex: 1; overflow-y: auto; }
+.sim-label { font-size: 10px; color: #333; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.sim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.sim-card { border-radius: 6px; border: 1px solid #1a1a1a; background: #111; padding: 8px; cursor: pointer; }
+.sim-card:hover { border-color: #2a2a2a; }
+.sc-art { height: 36px; border-radius: 3px; margin-bottom: 5px; display: flex; align-items: center; justify-content: center; font-size: 14px; opacity: 0.3; }
+.sc-g { background: #0f1a0f; } .sc-u { background: #0f101a; }
+.sc-name { font-size: 10px; color: #666; }
+.sc-type { font-size: 9px; color: #333; margin-top: 1px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html" class="logo">✦ MTG App</a>
+  <span class="sep">›</span>
+  <span class="tb-title">Deck Builder</span>
+  <div class="spacer"></div>
+  <button class="tb-btn" onclick="showImport()">Import list</button>
+  <button class="tb-btn">Export</button>
+  <button class="tb-btn primary" onclick="saveDeck()">Save deck</button>
+</div>
+
+<div class="builder">
+  <div class="search-panel">
+    <div class="sp-tabs">
+      <div class="sp-tab active">Search</div>
+      <div class="sp-tab">Saved Decks</div>
+    </div>
+    <div class="search-box">
+      <input class="search-input" placeholder="Search cards…" id="search-input" oninput="filterCards(this.value)">
+    </div>
+    <div class="filter-row">
+      <div class="fp fp-w" onclick="this.classList.toggle('active')" title="White">W</div>
+      <div class="fp fp-u" onclick="this.classList.toggle('active')" title="Blue">U</div>
+      <div class="fp fp-b" onclick="this.classList.toggle('active')" title="Black">B</div>
+      <div class="fp fp-r" onclick="this.classList.toggle('active')" title="Red">R</div>
+      <div class="fp fp-g active" onclick="this.classList.toggle('active')" title="Green">G</div>
+      <div class="fp fp-c" onclick="this.classList.toggle('active')" title="Colorless">◇</div>
+    </div>
+    <div class="type-filters">
+      <div class="tf active" onclick="setType(this,'All')">All</div>
+      <div class="tf" onclick="setType(this,'Creature')">Creature</div>
+      <div class="tf" onclick="setType(this,'Instant')">Instant</div>
+      <div class="tf" onclick="setType(this,'Sorcery')">Sorcery</div>
+      <div class="tf" onclick="setType(this,'Enchantment')">Enchantment</div>
+      <div class="tf" onclick="setType(this,'Artifact')">Artifact</div>
+      <div class="tf" onclick="setType(this,'Land')">Land</div>
+    </div>
+    <div class="card-results" id="card-results"></div>
+  </div>
+
+  <div class="deck-panel">
+    <div class="deck-header">
+      <div class="deck-name-row">
+        <input class="deck-name-input" placeholder="Deck name…" value="Simic Stompy">
+        <span class="format-badge">Commander</span>
+      </div>
+      <div class="deck-meta">
+        <div class="color-pips"><div class="cpip cpip-g"></div><div class="cpip cpip-u"></div></div>
+        <span class="deck-count"><span id="deck-count">13</span> / 100 cards</span>
+      </div>
+    </div>
+    <div class="import-row">
+      <button class="imp-btn active" onclick="showList()">Card list</button>
+      <button class="imp-btn" onclick="showImport()">Paste import</button>
+    </div>
+    <div class="deck-list-view" id="deck-list-view">
+      <div class="deck-body" id="deck-body"></div>
+      <div class="deck-stats">
+        <div class="validation val-warn" id="validation">
+          <span>⚠</span><span id="val-text">87 more cards needed</span>
+        </div>
+        <div class="stat-row"><span class="stat-lbl">Avg. mana value</span><span class="stat-val">2.8</span></div>
+        <div style="display:flex;align-items:flex-end;gap:6px">
+          <span class="stat-lbl" style="font-size:10px;margin-bottom:2px">Curve</span>
+          <div class="mana-curve" id="mana-curve"></div>
+        </div>
+      </div>
+    </div>
+    <div class="import-panel" id="import-panel">
+      <textarea class="import-textarea" id="import-text" placeholder="Paste your deck list here…&#10;&#10;1 Sol Ring&#10;1 Command Tower&#10;4 Llanowar Elves&#10;&#10;Supports Moxfield, Archidekt, MTGO, plain text"></textarea>
+      <div class="import-actions">
+        <button class="imp-btn" onclick="showList()" style="flex:1">Cancel</button>
+        <button class="imp-btn active" onclick="importList()" style="flex:2">Import deck</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="preview-panel">
+    <div class="card-preview">
+      <div class="preview-card">
+        <div class="pc-art" style="background:#0f1a10"><span class="pc-art-glyph">🌿</span><div class="pc-gradient"></div></div>
+        <div class="pc-name-bar"><span class="pc-name" id="pc-name">Cultivate</span><span class="pc-cost" id="pc-cost">2G</span></div>
+        <div class="pc-type" id="pc-type">Sorcery</div>
+        <div class="pc-text" id="pc-text">Search your library for up to two basic land cards, put one onto the battlefield tapped and the other into your hand, then shuffle.</div>
+      </div>
+      <div class="preview-meta">
+        <div class="pm-row"><span class="pm-lbl">Type</span><span class="pm-val" id="pm-type">Sorcery</span></div>
+        <div class="pm-row"><span class="pm-lbl">Set</span><span class="pm-val">Commander Masters</span></div>
+        <div class="pm-row"><span class="pm-lbl">Commander legal</span><span class="pm-val legal">Legal</span></div>
+        <div class="pm-row"><span class="pm-lbl">In deck</span><span class="pm-val" id="pm-indeck">1 copy</span></div>
+      </div>
+    </div>
+    <div class="similar-section">
+      <div class="sim-label">Similar cards</div>
+      <div class="sim-grid">
+        <div class="sim-card" onclick="previewCard("Kodama's Reach","2G","Sorcery","Search your library for up to two basic land cards.")"><div class="sc-art sc-g">🌿</div><div class="sc-name">Kodama's Reach</div><div class="sc-type">Sorcery · 2G</div></div>
+        <div class="sim-card" onclick="previewCard('Rampant Growth','1G','Sorcery','Search your library for a basic land card, put it onto the battlefield tapped.')"><div class="sc-art sc-g">🌿</div><div class="sc-name">Rampant Growth</div><div class="sc-type">Sorcery · 1G</div></div>
+        <div class="sim-card" onclick="previewCard('Migration Path','3G','Sorcery','Search your library for up to two basic land cards, put them onto the battlefield tapped. Cycling 2.')"><div class="sc-art sc-g">🌿</div><div class="sc-name">Migration Path</div><div class="sc-type">Sorcery · 3G</div></div>
+        <div class="sim-card" onclick="previewCard('Farseek','1G','Sorcery','Search your library for a Plains, Island, Swamp, or Mountain card and put it onto the battlefield tapped.')"><div class="sc-art sc-u">💧</div><div class="sc-name">Farseek</div><div class="sc-type">Sorcery · 1G</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var CARDS = [
+  {name:'Cultivate',type:'Sorcery',cost:'2G',color:'g',text:'Search your library for up to two basic land cards...'},
+  {name:'Llanowar Elves',type:'Creature',cost:'G',color:'g',text:'T: Add G.'},
+  {name:'Counterspell',type:'Instant',cost:'UU',color:'u',text:'Counter target spell.'},
+  {name:'Sol Ring',type:'Artifact',cost:'1',color:'a',text:'T: Add CC.'},
+  {name:'Rhystic Study',type:'Enchantment',cost:'2U',color:'u',text:'Whenever an opponent casts a spell, you may draw a card unless they pay 1.'},
+  {name:"Kodama's Reach",type:'Sorcery',cost:'2G',color:'g',text:'Search your library for up to two basic lands.'},
+  {name:'Command Tower',type:'Land',cost:'—',color:'land',text:'T: Add one mana of any color in your commander\'s color identity.'},
+  {name:'Arcane Signet',type:'Artifact',cost:'2',color:'a',text:'T: Add one mana of any color in your commander\'s color identity.'},
+  {name:'Cyclonic Rift',type:'Instant',cost:'1U',color:'u',text:'Return target nonland permanent you don\'t control to its owner\'s hand. Overload 6U.'},
+  {name:'Rampant Growth',type:'Sorcery',cost:'1G',color:'g',text:'Search your library for a basic land card, put it onto the battlefield tapped.'},
+  {name:'Beast Within',type:'Instant',cost:'2G',color:'g',text:'Destroy target permanent. Its controller creates a 3/3 Beast token.'},
+  {name:'Craterhoof Behemoth',type:'Creature',cost:'5GGG',color:'g',text:'When Craterhoof Behemoth enters, creatures you control gain trample and +X/+X.'},
+  {name:'Tireless Tracker',type:'Creature',cost:'2G',color:'g',text:'Landfall — Whenever a land enters, create a Clue token.'},
+  {name:'Forest',type:'Land',cost:'—',color:'land',text:'T: Add G.'},
+  {name:'Island',type:'Land',cost:'—',color:'land',text:'T: Add U.'},
+  {name:'Path to Exile',type:'Instant',cost:'W',color:'w',text:'Exile target creature.'},
+];
+
+var DECK = [
+  {name:'Cultivate',cost:'2G',color:'g',type:'Sorcery',qty:1},
+  {name:"Kodama's Reach",cost:'2G',color:'g',type:'Sorcery',qty:1},
+  {name:'Rampant Growth',cost:'1G',color:'g',type:'Sorcery',qty:1},
+  {name:'Beast Within',cost:'2G',color:'g',type:'Instant',qty:1},
+  {name:'Llanowar Elves',cost:'G',color:'g',type:'Creature',qty:1},
+  {name:'Tireless Tracker',cost:'2G',color:'g',type:'Creature',qty:1},
+  {name:'Craterhoof Behemoth',cost:'5GGG',color:'g',type:'Creature',qty:1},
+  {name:'Rhystic Study',cost:'2U',color:'u',type:'Enchantment',qty:1},
+  {name:'Counterspell',cost:'UU',color:'u',type:'Instant',qty:1},
+  {name:'Cyclonic Rift',cost:'1U',color:'u',type:'Instant',qty:1},
+  {name:'Sol Ring',cost:'1',color:'a',type:'Artifact',qty:1},
+  {name:'Arcane Signet',cost:'2',color:'a',type:'Artifact',qty:1},
+  {name:'Command Tower',cost:'—',color:'land',type:'Land',qty:1},
+];
+
+var SECTIONS = ['Creature','Instant','Sorcery','Enchantment','Artifact','Land'];
+
+function thumbClass(c){return{g:'cr-t-g',u:'cr-t-u',r:'cr-t-r',w:'cr-t-w',b:'cr-t-b',a:'cr-t-a',land:'cr-t-land'}[c]||'cr-t-a';}
+function dotClass(c){return{g:'dot-g',u:'dot-u',r:'dot-r',w:'dot-w',b:'dot-b',a:'dot-a',land:'dot-land'}[c]||'dot-a';}
+function artIcon(c){return{g:'🌿',u:'🌊',r:'🔥',b:'👁',w:'☀',a:'⭕',land:'🌲'}[c]||'◈';}
+
+function renderResults(cards){
+  var el=document.getElementById('card-results');
+  var deckNames=DECK.map(function(d){return d.name;});
+  el.innerHTML=cards.map(function(c){
+    return '<div class="card-row '+(deckNames.includes(c.name)?'in-deck':'')+'" onclick="previewCard(\''+c.name.replace(/'/g,"\\'")+"','"+c.cost+"','"+c.type+"','"+c.text.replace(/'/g,"\\'")+"')\">"
+      +'<div class="cr-thumb '+thumbClass(c.color)+'">'+artIcon(c.color)+'</div>'
+      +'<div class="cr-info"><div class="cr-name">'+c.name+'</div><div class="cr-type">'+c.type+'</div></div>'
+      +'<span class="cr-mana">'+c.cost+'</span>'
+      +'<div class="cr-add" onclick="event.stopPropagation();addCard(\''+c.name.replace(/'/g,"\\'")+"','"+c.cost+"','"+c.color+"','"+c.type+"')\"">+</div>'
+      +'</div>';
+  }).join('');
+}
+
+function filterCards(q){
+  var f=q.toLowerCase();
+  renderResults(CARDS.filter(function(c){return c.name.toLowerCase().includes(f)||c.type.toLowerCase().includes(f);}));
+}
+
+function setType(el,type){
+  document.querySelectorAll('.tf').forEach(function(t){t.classList.remove('active');});
+  el.classList.add('active');
+  if(type==='All'){renderResults(CARDS);}else{renderResults(CARDS.filter(function(c){return c.type.includes(type);}));}
+}
+
+function renderDeck(){
+  var body=document.getElementById('deck-body');
+  var total=DECK.reduce(function(s,c){return s+c.qty;},0);
+  document.getElementById('deck-count').textContent=total;
+  var html='';
+  SECTIONS.forEach(function(sec){
+    var cards=DECK.filter(function(c){return c.type.includes(sec);});
+    if(!cards.length)return;
+    var count=cards.reduce(function(s,c){return s+c.qty;},0);
+    html+='<div class="deck-section"><div class="ds-head"><span class="ds-label">'+sec+'s</span><span class="ds-count">'+count+'</span></div>';
+    html+=cards.map(function(c){
+      return '<div class="deck-card-row">'
+        +'<span class="dcr-qty">'+c.qty+'</span>'
+        +'<div class="dcr-dot '+dotClass(c.color)+'"></div>'
+        +'<span class="dcr-name" onclick="previewCard(\''+c.name.replace(/'/g,"\\'")+"','"+c.cost+"','"+c.type+"','')\">" +c.name+'</span>'
+        +'<span class="dcr-mana">'+c.cost+'</span>'
+        +'<button class="dcr-remove" onclick="removeCard(\''+c.name.replace(/'/g,"\\'")+"')\">×</button>"
+        +'</div>';
+    }).join('');
+    html+='</div>';
+  });
+  body.innerHTML=html;
+  var val=document.getElementById('validation');
+  var valTxt=document.getElementById('val-text');
+  if(total>=98){val.className='validation val-ok';valTxt.textContent='Deck valid · '+total+' / 100 cards';}
+  else{val.className='validation val-warn';valTxt.textContent=(100-total)+' more cards needed';}
+  renderCurve();
+}
+
+function renderCurve(){
+  var counts=[0,0,0,0,0,0];
+  DECK.forEach(function(c){
+    if(c.color==='land')return;
+    var mv=(c.cost.match(/\d+/g)||[]).reduce(function(s,n){return s+parseInt(n);},0)+(c.cost.match(/[WUBRG]/g)||[]).length;
+    counts[Math.min(mv,5)]+=c.qty;
+  });
+  var max=Math.max.apply(null,counts.concat([1]));
+  var labels=['0','1','2','3','4','5+'];
+  document.getElementById('mana-curve').innerHTML=counts.map(function(n,i){
+    return '<div class="mc-bar-w"><div class="mc-bar" style="height:'+Math.max(4,Math.round(n/max*28))+'px"></div><span class="mc-lbl">'+labels[i]+'</span></div>';
+  }).join('');
+}
+
+function addCard(name,cost,color,type){
+  var ex=DECK.find(function(c){return c.name===name;});
+  if(ex){ex.qty++;}else{DECK.push({name:name,cost:cost,color:color,type:type.split('—')[0].trim(),qty:1});}
+  renderDeck();
+  renderResults(CARDS.filter(function(c){return c.name.toLowerCase().includes(document.getElementById('search-input').value.toLowerCase());}));
+}
+
+function removeCard(name){
+  var idx=DECK.findIndex(function(c){return c.name===name;});
+  if(idx===-1)return;
+  if(DECK[idx].qty>1)DECK[idx].qty--;else DECK.splice(idx,1);
+  renderDeck();
+}
+
+function previewCard(name,cost,type,text){
+  document.getElementById('pc-name').textContent=name;
+  document.getElementById('pc-cost').textContent=cost;
+  document.getElementById('pc-type').textContent=type;
+  document.getElementById('pc-text').textContent=text||'Select a card to see its text.';
+  document.getElementById('pm-type').textContent=type;
+  var inDeck=DECK.find(function(c){return c.name===name;});
+  document.getElementById('pm-indeck').textContent=inDeck?inDeck.qty+' cop'+(inDeck.qty>1?'ies':'y'):'Not in deck';
+}
+
+function showImport(){
+  document.getElementById('deck-list-view').classList.add('hidden');
+  document.getElementById('import-panel').classList.add('visible');
+}
+
+function showList(){
+  document.getElementById('deck-list-view').classList.remove('hidden');
+  document.getElementById('import-panel').classList.remove('visible');
+}
+
+function importList(){
+  var text=document.getElementById('import-text').value.trim();
+  if(!text){showList();return;}
+  text.split('\n').filter(function(l){return l.trim();}).forEach(function(line){
+    var m=line.match(/^(\d+)\s+(.+)$/);
+    if(m){
+      var qty=parseInt(m[1]);var name=m[2].trim();
+      var ex=DECK.find(function(c){return c.name.toLowerCase()===name.toLowerCase();});
+      if(ex){ex.qty+=qty;}else{DECK.push({name:name,cost:'?',color:'a',type:'Card',qty:qty});}
+    }
+  });
+  showList();renderDeck();
+}
+
+function saveDeck(){
+  var name=document.querySelector('.deck-name-input').value||'My Deck';
+  var saved=JSON.parse(localStorage.getItem('mtg-decks')||'[]');
+  saved=saved.filter(function(d){return d.name!==name;});
+  saved.push({name:name,cards:DECK,saved:new Date().toISOString()});
+  localStorage.setItem('mtg-decks',JSON.stringify(saved));
+  alert('Deck "'+name+'" saved!');
+}
+
+renderResults(CARDS);
+renderDeck();
+</script>
+</body>
+</html>
