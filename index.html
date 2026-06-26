@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MTG App — Play Magic Instantly</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; }
+
+nav { display: flex; align-items: center; gap: 10px; padding: 14px 28px; background: rgba(10,10,10,0.95); border-bottom: 1px solid #1a1a1a; position: sticky; top: 0; z-index: 10; }
+.logo { font-size: 18px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px; }
+.logo span { color: #a78bfa; }
+.nav-links { display: flex; gap: 2px; margin-left: 20px; }
+.nav-link { padding: 5px 12px; font-size: 13px; color: #555; cursor: pointer; border-radius: 5px; text-decoration: none; }
+.nav-link:hover { color: #aaa; background: #111; }
+.spacer { flex: 1; }
+.nav-play { padding: 8px 20px; border-radius: 6px; background: #a78bfa; border: none; font-size: 13px; font-weight: 600; color: #0a0a0a; cursor: pointer; text-decoration: none; }
+.nav-play:hover { background: #c4b5fd; }
+
+.hero { padding: 90px 28px 70px; text-align: center; position: relative; overflow: hidden; }
+.hero-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(124,58,237,0.12) 0%, transparent 70%); pointer-events: none; }
+.hero-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px); background-size: 40px 40px; pointer-events: none; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; border-radius: 20px; background: rgba(124,58,237,0.1); border: 1px solid rgba(124,58,237,0.3); font-size: 11px; color: #a78bfa; margin-bottom: 24px; }
+.badge-dot { width: 6px; height: 6px; border-radius: 50%; background: #a78bfa; animation: blink 2s ease infinite; }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:0.3} }
+h1 { font-size: 56px; font-weight: 700; line-height: 1.08; letter-spacing: -0.03em; color: #fff; margin-bottom: 16px; position: relative; }
+h1 .accent { color: #a78bfa; }
+.sub { font-size: 17px; color: #555; line-height: 1.6; max-width: 440px; margin: 0 auto 36px; }
+.ctas { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 48px; }
+.cta-primary { padding: 13px 30px; border-radius: 8px; background: #a78bfa; border: none; font-size: 15px; font-weight: 600; color: #0a0a0a; cursor: pointer; text-decoration: none; transition: all 0.12s; }
+.cta-primary:hover { background: #c4b5fd; transform: translateY(-1px); }
+.cta-secondary { padding: 13px 22px; border-radius: 8px; background: #111; border: 1px solid #2a2a2a; font-size: 15px; color: #888; cursor: pointer; text-decoration: none; }
+.cta-secondary:hover { border-color: #444; color: #ccc; }
+
+.board-preview { margin: 0 28px 60px; border-radius: 12px; border: 1px solid #1e1e1e; background: #0d0d0d; overflow: hidden; }
+.preview-inner { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; padding: 8px; height: 200px; }
+.pz { border-radius: 6px; padding: 8px; position: relative; display: flex; flex-direction: column; justify-content: flex-end; }
+.pz1 { background: #111d11; border: 1px solid #1e3a1e; transform: rotate(180deg); }
+.pz2 { background: #0f1422; border: 1px solid #1a2a4a; transform: rotate(180deg); }
+.pz3 { background: #1e1408; border: 1px solid #3a2a10; }
+.pz4 { background: #120f1e; border: 1px solid #2a1a3a; }
+.cards { display: flex; gap: 3px; }
+.c { width: 22px; height: 31px; border-radius: 2px; border: 1px solid; }
+.cg { background: #101a10; border-color: #1e3a1e; }
+.cu { background: #0f1422; border-color: #1e2a4a; }
+.cr { background: #1a1010; border-color: #3a1e1e; }
+.ct { transform: rotate(12deg); margin: 3px 2px; }
+.life { position: absolute; bottom: 7px; right: 8px; font-size: 20px; font-weight: 700; }
+
+.features { padding: 60px 28px; border-top: 1px solid #141414; }
+.section-eye { font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.1em; text-align: center; margin-bottom: 10px; }
+.section-title { font-size: 34px; font-weight: 600; color: #e0e0e0; text-align: center; margin-bottom: 8px; letter-spacing: -0.02em; }
+.section-sub { font-size: 14px; color: #444; text-align: center; margin-bottom: 44px; }
+.feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.feat { background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 10px; padding: 20px; }
+.feat-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; margin-bottom: 12px; }
+.fi-p { background: #14102a; border: 1px solid #3a2d6a; }
+.fi-b { background: #0f1422; border: 1px solid #1e2a4a; }
+.fi-g { background: #0f1a10; border: 1px solid #1e3a1e; }
+.fi-a { background: #1e1408; border: 1px solid #3a2a10; }
+.fi-r { background: #1a0f0f; border: 1px solid #3a1e1e; }
+.fi-t { background: #0a1e1a; border: 1px solid #1a3a34; }
+.feat-title { font-size: 14px; font-weight: 500; color: #e0e0e0; margin-bottom: 6px; }
+.feat-desc { font-size: 12px; color: #444; line-height: 1.6; }
+
+.variants { padding: 60px 28px; border-top: 1px solid #141414; background: #080808; }
+.var-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 36px; }
+.var { border-radius: 10px; border: 1px solid #1a1a1a; background: #0d0d0d; padding: 16px; }
+.var:hover { border-color: #2a2a3a; }
+.var-icon { font-size: 22px; margin-bottom: 8px; }
+.var-name { font-size: 13px; font-weight: 500; color: #ccc; margin-bottom: 4px; }
+.var-desc { font-size: 11px; color: #3a3a3a; line-height: 1.5; }
+.var-pill { display: inline-block; margin-top: 8px; font-size: 9px; padding: 2px 8px; border-radius: 10px; background: #111; border: 1px solid #222; color: #444; }
+
+.how { padding: 60px 28px; border-top: 1px solid #141414; }
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-top: 40px; position: relative; }
+.steps::before { content:''; position: absolute; top: 20px; left: 12.5%; right: 12.5%; height: 1px; background: linear-gradient(90deg, #1a1a1a, #2a2050, #2a2050, #1a1a1a); }
+.step { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 0 12px; }
+.step-num { width: 40px; height: 40px; border-radius: 50%; background: #0d0d0d; border: 1px solid #2a2050; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: #a78bfa; margin-bottom: 14px; position: relative; z-index: 1; }
+.step-title { font-size: 13px; font-weight: 500; color: #ccc; margin-bottom: 6px; }
+.step-desc { font-size: 11px; color: #3a3a3a; line-height: 1.5; }
+
+.cta-section { padding: 70px 28px; border-top: 1px solid #141414; text-align: center; background: #080808; position: relative; overflow: hidden; }
+.cta-section::before { content:''; position: absolute; inset:0; background: radial-gradient(ellipse 60% 60% at 50% 100%, rgba(124,58,237,0.08) 0%, transparent 70%); pointer-events: none; }
+.cta-title { font-size: 38px; font-weight: 700; color: #fff; margin-bottom: 10px; letter-spacing: -0.02em; }
+.cta-sub { font-size: 14px; color: #444; margin-bottom: 28px; }
+
+footer { padding: 20px 28px; border-top: 1px solid #141414; display: flex; align-items: center; justify-content: space-between; }
+.footer-logo { font-size: 13px; color: #333; }
+.footer-links { display: flex; gap: 16px; }
+.footer-link { font-size: 11px; color: #2a2a2a; cursor: pointer; text-decoration: none; }
+.footer-link:hover { color: #555; }
+.footer-disc { font-size: 10px; color: #1e1e1e; max-width: 300px; text-align: right; }
+
+@media (max-width: 768px) {
+  h1 { font-size: 36px; }
+  .feat-grid { grid-template-columns: 1fr; }
+  .var-grid { grid-template-columns: 1fr 1fr; }
+  .steps { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo"><span>✦</span> MTG App</div>
+  <div class="nav-links">
+    <a href="#variants" class="nav-link">Variants</a>
+    <a href="deck-builder.html" class="nav-link">Deck Builder</a>
+  </div>
+  <div class="spacer"></div>
+  <a href="lobby.html" class="nav-play">Play now →</a>
+</nav>
+
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-grid"></div>
+  <div class="badge"><div class="badge-dot"></div>Free to play · No account required</div>
+  <h1>Play Magic.<br><span class="accent">Instantly.</span></h1>
+  <p class="sub">No downloads, no accounts — just share a link and start playing in seconds.</p>
+  <div class="ctas">
+    <a href="lobby.html" class="cta-primary">Create a game →</a>
+    <a href="game.html" class="cta-secondary">Demo the board</a>
+  </div>
+</section>
+
+<div class="board-preview" style="margin: -20px 28px 60px;">
+  <div class="preview-inner">
+    <div class="pz pz1"><div class="cards"><div class="c cg ct"></div><div class="c cg"></div><div class="c cu"></div></div><div class="life" style="color:#6888cc">38</div></div>
+    <div class="pz pz2"><div class="cards"><div class="c cr"></div><div class="c cr ct"></div></div><div class="life" style="color:#ef4444">21</div></div>
+    <div class="pz pz3"><div class="cards"><div class="c cg"></div><div class="c cg ct"></div><div class="c cu"></div><div class="c cg"></div></div><div class="life" style="color:#60a5fa">40</div></div>
+    <div class="pz pz4"><div class="cards"><div class="c ct"></div><div class="c cg"></div></div><div class="life" style="color:#ef4444">9</div></div>
+  </div>
+</div>
+
+<section class="features" id="features">
+  <p class="section-eye">Why this app</p>
+  <h2 class="section-title">Built for the way you play</h2>
+  <p class="section-sub">No friction. No installs. Just Magic.</p>
+  <div class="feat-grid">
+    <div class="feat"><div class="feat-icon fi-p">⚡</div><div class="feat-title">Instant rooms</div><div class="feat-desc">Create a game, share a link. Friends join in one click — no account, no download.</div></div>
+    <div class="feat"><div class="feat-icon fi-b">⬡</div><div class="feat-title">8 game variants</div><div class="feat-desc">Commander, Planechase, 2HG, Oathbreaker, Horde, Archenemy, Standard, and Draft.</div></div>
+    <div class="feat"><div class="feat-icon fi-g">◈</div><div class="feat-title">Full card catalog</div><div class="feat-desc">Every card ever printed, powered by Scryfall. Real art and oracle text built in.</div></div>
+    <div class="feat"><div class="feat-icon fi-a">◻</div><div class="feat-title">Deck builder</div><div class="feat-desc">Build from scratch or paste a list from Moxfield or Archidekt.</div></div>
+    <div class="feat"><div class="feat-icon fi-r">↯</div><div class="feat-title">Real-time sync</div><div class="feat-desc">Every tap, draw, and life total change syncs instantly across all players.</div></div>
+    <div class="feat"><div class="feat-icon fi-t">✦</div><div class="feat-title">Free forever</div><div class="feat-desc">No subscriptions, no ads, no paywalls. Fan-made and free.</div></div>
+  </div>
+</section>
+
+<section class="variants" id="variants">
+  <p class="section-eye">Game variants</p>
+  <h2 class="section-title">One app, every format</h2>
+  <p class="section-sub">Pick your format before the game — the board adapts automatically.</p>
+  <div class="var-grid">
+    <div class="var"><div class="var-icon">⚔</div><div class="var-name">Commander</div><div class="var-desc">100-card singleton, 40 life, commander damage tracking.</div><span class="var-pill">2–4 players</span></div>
+    <div class="var"><div class="var-icon">⬡</div><div class="var-name">Planechase</div><div class="var-desc">Shared planar deck, planar die rolls, plane card display.</div><span class="var-pill">2–4 players</span></div>
+    <div class="var"><div class="var-icon">⚡</div><div class="var-name">2-Headed Giant</div><div class="var-desc">Team up and share a life total.</div><span class="var-pill">4 players</span></div>
+    <div class="var"><div class="var-icon">◈</div><div class="var-name">Oathbreaker</div><div class="var-desc">Planeswalker commanders with signature spell slots.</div><span class="var-pill">2–4 players</span></div>
+    <div class="var"><div class="var-icon">☠</div><div class="var-name">Horde Magic</div><div class="var-desc">Co-op survival against an AI-controlled horde.</div><span class="var-pill">1–4 co-op</span></div>
+    <div class="var"><div class="var-icon">▲</div><div class="var-name">Archenemy</div><div class="var-desc">One villain vs three heroes with scheme cards.</div><span class="var-pill">1 vs 3</span></div>
+    <div class="var"><div class="var-icon">◻</div><div class="var-name">Standard</div><div class="var-desc">Classic 1v1 with format legality checked automatically.</div><span class="var-pill">2 players</span></div>
+    <div class="var"><div class="var-icon">◑</div><div class="var-name">Draft</div><div class="var-desc">Draft from a virtual pack pool then battle with your build.</div><span class="var-pill">2–8 players</span></div>
+  </div>
+</section>
+
+<section class="how" id="how">
+  <p class="section-eye">How it works</p>
+  <h2 class="section-title">Up and running in 30 seconds</h2>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-title">Pick a format</div><div class="step-desc">Choose from 8 variants including Commander, Planechase, and more.</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-title">Load your deck</div><div class="step-desc">Build in the deck editor or paste a list from Moxfield or Archidekt.</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-title">Share the link</div><div class="step-desc">Send your room link to friends. No signup needed on their end.</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-title">Play</div><div class="step-desc">All game actions sync instantly. Tap, draw, and cast in real time.</div></div>
+  </div>
+</section>
+
+<section class="cta-section">
+  <h2 class="cta-title">Ready to play?</h2>
+  <p class="cta-sub">No account. No download. Just Magic.</p>
+  <div class="ctas">
+    <a href="lobby.html" class="cta-primary">Create a game →</a>
+    <a href="game.html" class="cta-secondary">Demo the board</a>
+  </div>
+</section>
+
+<footer>
+  <span class="footer-logo">✦ MTG App — fan-made companion</span>
+  <div class="footer-links">
+    <a href="https://github.com/Atlas217-design/mtg-app" class="footer-link">GitHub</a>
+  </div>
+  <span class="footer-disc">Unofficial fan app. Not affiliated with Wizards of the Coast. Magic: The Gathering is property of WotC.</span>
+</footer>
+
+</body>
+</html>
