@@ -1,33 +1,39 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import TokenPanel from './TokenPanel.jsx'
-import { getTokensForDeck, UNIVERSAL_TOKENS } from '../utils/tokenRegistry.js'
+import { getTokensForDeck } from '../utils/tokenRegistry.js'
 
-// ── SCRYFALL ────────────────────────────────────────────────
 const SF = (name, ver='normal') =>
   `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=${ver}`
 
-// ── PARSE DECK LIST ─────────────────────────────────────────
+// ── PARSE DECK ───────────────────────────────────────────────
 function parseDeck(text) {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
   const cards = []
-  let inSideboard = false
-  for (const line of lines) {
-    if (line.toLowerCase().startsWith('sideboard')) { inSideboard = true; continue }
-    if (inSideboard) continue
+  let inSide = false
+  for (const line of text.split('\n').map(l=>l.trim()).filter(Boolean)) {
+    if (line.toLowerCase().startsWith('sideboard')) { inSide=true; continue }
+    if (inSide) continue
     const m = line.match(/^(\d+)\s+(.+)$/)
-    if (m) {
-      const qty = parseInt(m[1])
-      const name = m[2].trim()
-      for (let i = 0; i < qty; i++) {
-        cards.push({ name, id: 'deck-' + name + '-' + i + '-' + Math.random().toString(36).substr(2,4) })
-      }
-    }
+    if (m) for (let i=0;i<parseInt(m[1]);i++)
+      cards.push({ name:m[2].trim(), id:'dk-'+m[2]+i+Math.random().toString(36).substr(2,4) })
   }
   return cards
 }
 
-// ── DEFAULT DECK (your landfall deck) ───────────────────────
-const DEFAULT_DECK_TEXT = `1 Amulet of Vigor
+function getDeckTokens(text) {
+  const names=[]
+  let inSide=false
+  for (const line of text.split('\n').map(l=>l.trim()).filter(Boolean)) {
+    if (line.toLowerCase().startsWith('sideboard')) { inSide=true; continue }
+    if (inSide) continue
+    const m=line.match(/^\d+\s+(.+)$/)
+    if (m) names.push(m[1].trim())
+  }
+  return getTokensForDeck(names)
+}
+
+function shuffle(arr) { return [...arr].sort(()=>Math.random()-.5) }
+
+const DEFAULT_DECK = `1 Amulet of Vigor
 1 Ancient Greenwarden
 1 Arcane Signet
 1 Azusa, Lost but Seeking
@@ -107,489 +113,651 @@ const DEFAULT_DECK_TEXT = `1 Amulet of Vigor
 1 Wooded Ridgeline
 1 Zuran Orb`
 
-function shuffle(arr) { return [...arr].sort(() => Math.random() - 0.5) }
-// ── COMPUTE DECK TOKENS FROM DECK LIST ──────────────────────
-function getDeckTokens(deckText) {
-  const lines = deckText.split('\n').map(l=>l.trim()).filter(Boolean)
-  const names = []
-  let inSide = false
-  for (const line of lines) {
-    if (line.toLowerCase().startsWith('sideboard')) { inSide=true; continue }
-    if (inSide) continue
-    const m = line.match(/^\d+\s+(.+)$/)
-    if (m) names.push(m[1].trim())
-  }
-  return getTokensForDeck(names)
+const PHASES   = ['Untap','Upkeep','Draw','Main 1','Combat','Main 2','End']
+const CSUBS    = ['Attackers','Blockers','Damage','Cleanup']
+
+// ── CARD HOVER PREVIEW ───────────────────────────────────────
+function CardPreview({ card }) {
+  const [err, setErr] = useState(false)
+  if (!card) return null
+  return (
+    <div style={{
+      position:'fixed', bottom:16, right:16, zIndex:8000,
+      width:220, borderRadius:12,
+      boxShadow:'0 16px 48px rgba(0,0,0,.95)',
+      border:'1px solid #444',
+      overflow:'hidden',
+      pointerEvents:'none',
+      animation:'previewIn .12s ease',
+    }}>
+      <style>{`@keyframes previewIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}`}</style>
+      {!err ? (
+        <img src={SF(card.tokenScryfall||card.name,'normal')} alt={card.name}
+          style={{width:'100%',display:'block'}}
+          onError={()=>setErr(true)} />
+      ) : (
+        <div style={{background:'#1a1a2a',padding:16,color:'#ccc',fontSize:12,lineHeight:1.6}}>
+          <div style={{fontWeight:600,marginBottom:4}}>{card.name}</div>
+          <div style={{fontSize:10,color:'#555'}}>{card.type}</div>
+          {card.pt&&<div style={{fontSize:11,marginTop:4}}>{card.pt}</div>}
+        </div>
+      )}
+    </div>
+  )
 }
 
+// ── STACK TRACKER ────────────────────────────────────────────
+function StackTracker({ stack, priority, log, onPush, onPop, onPass, onClear, onClose }) {
+  const [newItem, setNewItem] = useState('')
+  const PLAYERS = ['You']
 
-const PHASES = ['Untap','Upkeep','Draw','Main 1','Combat','Main 2','End']
-const CSUBS  = ['Attackers','Blockers','Damage','Cleanup']
+  return (
+    <div style={{
+      position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)',
+      width:380, background:'#111', border:'1px solid #2a2050',
+      borderRadius:12, zIndex:7000, boxShadow:'0 16px 48px rgba(0,0,0,.9)',
+      display:'flex', flexDirection:'column', maxHeight:'80vh',
+    }}>
+      <div style={{display:'flex',alignItems:'center',padding:'12px 16px',borderBottom:'1px solid #1a1a1a',flexShrink:0}}>
+        <span style={{fontSize:14,fontWeight:600,color:'#e0e0e0',flex:1}}>⚡ Stack & Priority</span>
+        <button onClick={onClose} style={{background:'none',border:'none',color:'#444',fontSize:18,cursor:'pointer'}}>✕</button>
+      </div>
+
+      {/* PRIORITY */}
+      <div style={{padding:'10px 16px',borderBottom:'1px solid #1a1a1a',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'6px 10px',borderRadius:6,background:'#0d0a1e',border:'1px solid #2a2050'}}>
+          <div style={{width:7,height:7,borderRadius:'50%',background:'#a78bfa',animation:'blink 1.2s ease infinite'}}/>
+          <span style={{fontSize:11,color:'#888',flex:1}}>Priority: <b style={{color:'#a78bfa'}}>{priority}</b></span>
+          <button onClick={onPass} style={{padding:'3px 10px',borderRadius:4,border:'1px solid #2a2050',background:'#14102a',color:'#a78bfa',fontSize:10,cursor:'pointer'}}>
+            Pass priority →
+          </button>
+        </div>
+        <style>{`@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
+      </div>
+
+      {/* STACK */}
+      <div style={{flex:1,overflowY:'auto',padding:'10px 16px'}}>
+        <div style={{fontSize:10,color:'#333',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>
+          The Stack ({stack.length})
+        </div>
+        {stack.length===0 ? (
+          <div style={{textAlign:'center',padding:'16px 0',fontSize:11,color:'#1e1e1e'}}>Stack is empty</div>
+        ) : (
+          [...stack].reverse().map((item,i)=>(
+            <div key={item.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:6,background:i===0?'#0d1628':'#111',border:`1px solid ${i===0?'#1e3a6e':'#1a1a1a'}`,marginBottom:4}}>
+              <span style={{fontSize:13}}>{item.art||'🌊'}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:11,color:'#ccc',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{item.name}</div>
+                <div style={{fontSize:9,color:'#444',marginTop:1}}>{item.caster} {item.target?`→ ${item.target}`:''}</div>
+              </div>
+              {i===0&&<span style={{fontSize:8,color:'#60a5fa',flexShrink:0}}>TOP</span>}
+            </div>
+          ))
+        )}
+
+        {/* ADD TO STACK */}
+        <div style={{marginTop:10,display:'flex',gap:6}}>
+          <input
+            value={newItem} onChange={e=>setNewItem(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&newItem.trim()&&(onPush({id:'s-'+Date.now(),name:newItem.trim(),caster:'You',art:'🌊'}),setNewItem(''))}
+            placeholder="Add spell to stack..."
+            style={{flex:1,padding:'6px 10px',borderRadius:5,background:'#0d0d0d',border:'1px solid #222',color:'#ccc',fontSize:11,outline:'none',fontFamily:'inherit'}}
+          />
+          <button onClick={()=>{if(newItem.trim()){onPush({id:'s-'+Date.now(),name:newItem.trim(),caster:'You',art:'🌊'});setNewItem('')}}}
+            style={{padding:'6px 10px',borderRadius:5,border:'1px solid #2a2050',background:'#0d0a1e',color:'#a78bfa',fontSize:11,cursor:'pointer'}}>
+            Add
+          </button>
+        </div>
+
+        {/* ACTIONS */}
+        {stack.length>0&&(
+          <div style={{display:'flex',gap:6,marginTop:8}}>
+            <button onClick={onPop} style={{flex:1,padding:'7px 0',borderRadius:5,background:'#2563eb',border:'none',color:'#fff',fontSize:11,cursor:'pointer',fontWeight:600}}>
+              Resolve top
+            </button>
+            <button onClick={onClear} style={{padding:'7px 12px',borderRadius:5,border:'1px solid #1a1a1a',background:'#111',color:'#444',fontSize:11,cursor:'pointer'}}>
+              Clear all
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ACTION LOG */}
+      {log.length>0&&(
+        <div style={{borderTop:'1px solid #1a1a1a',flexShrink:0}}>
+          <div style={{padding:'6px 16px 0',fontSize:9,color:'#333',textTransform:'uppercase',letterSpacing:'.07em'}}>Action Log</div>
+          <div style={{maxHeight:100,overflowY:'auto',padding:'4px 16px 10px',display:'flex',flexDirection:'column',gap:3}}>
+            {[...log].reverse().slice(0,20).map((entry,i)=>(
+              <div key={i} style={{fontSize:9,color:i===0?'#666':'#333',display:'flex',gap:6}}>
+                <span style={{color:'#2a2a2a',flexShrink:0}}>T{entry.turn}</span>
+                <span>{entry.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── HAND PANEL ───────────────────────────────────────────────
+function HandPanel({ hand, onClose, onReturnToBF, onDiscard }) {
+  const [preview, setPreview] = useState(null)
+  const [imgErrs, setImgErrs] = useState({})
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
+      <div style={{padding:'8px 12px',borderBottom:'1px solid #1a1a1a',flexShrink:0,fontSize:10,color:'#555'}}>
+        {hand.length} card{hand.length!==1?'s':''} in hand · Hover to preview · Right-click for options
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'8px 12px',display:'flex',flexDirection:'column',gap:6}}>
+        {hand.length===0?(
+          <div style={{textAlign:'center',padding:30,fontSize:12,color:'#222'}}>Hand is empty</div>
+        ):hand.map((card,i)=>{
+          const err=imgErrs[card.id]
+          return (
+            <div key={card.id}
+              style={{display:'flex',alignItems:'center',gap:8,padding:'6px 8px',borderRadius:6,border:'1px solid #1a1a1a',background: preview===card.id?'#14102a':'transparent',cursor:'default'}}
+              onMouseEnter={()=>setPreview(card.id)}
+              onMouseLeave={()=>setPreview(null)}>
+              <div style={{width:40,height:56,borderRadius:4,overflow:'hidden',flexShrink:0,border:'1px solid #333',background:'#0d1a0d'}}>
+                {!err?(
+                  <img src={SF(card.name)} alt={card.name} style={{width:'100%',height:'100%',objectFit:'cover'}}
+                    onError={()=>setImgErrs(p=>({...p,[card.id]:true}))}/>
+                ):(
+                  <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'#555',textAlign:'center',padding:2}}>{card.name}</div>
+                )}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:11,color:'#ccc',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{card.name}</div>
+                <div style={{fontSize:9,color:'#333',marginTop:1}}>{card.type||'Card'}</div>
+              </div>
+              <div style={{display:'flex',gap:3,flexShrink:0}}>
+                <button onClick={()=>onReturnToBF&&onReturnToBF(card.id)}
+                  style={{padding:'3px 7px',borderRadius:4,border:'1px solid #2a2050',background:'#0d0a1e',color:'#a78bfa',fontSize:9,cursor:'pointer'}}>
+                  Play
+                </button>
+                <button onClick={()=>onDiscard&&onDiscard(card.id,'gy')}
+                  style={{padding:'3px 7px',borderRadius:4,border:'1px solid #1a1a1a',background:'#111',color:'#444',fontSize:9,cursor:'pointer'}}>
+                  GY
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {/* PREVIEW IN PANEL */}
+      {preview&&(()=>{
+        const card=hand.find(c=>c.id===preview)
+        if(!card)return null
+        return(
+          <div style={{borderTop:'1px solid #1a1a1a',padding:8,flexShrink:0,display:'flex',justifyContent:'center',background:'#0d0d0d'}}>
+            <img src={SF(card.name)} alt={card.name} style={{width:120,borderRadius:7,border:'1px solid #333'}}
+              onError={e=>e.target.style.display='none'}/>
+          </div>
+        )
+      })()}
+    </div>
+  )
+}
+
+// ── COUNTERS WIDGET ──────────────────────────────────────────
+function CountersWidget({ poison, energy, experience, onPoison, onEnergy, onExp, onClose }) {
+  return (
+    <div style={{position:'absolute',top:'100%',left:0,marginTop:4,background:'#111',border:'1px solid #333',borderRadius:8,padding:12,zIndex:500,minWidth:200,boxShadow:'0 8px 24px rgba(0,0,0,.8)'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+        <span style={{fontSize:11,fontWeight:600,color:'#e0e0e0'}}>Your Counters</span>
+        <button onClick={onClose} style={{background:'none',border:'none',color:'#444',fontSize:14,cursor:'pointer'}}>✕</button>
+      </div>
+      {[
+        {label:'☠ Poison',   val:poison,     set:onPoison,  warn:10,  color:'#4ade80'},
+        {label:'⚡ Energy',  val:energy,     set:onEnergy,  warn:999, color:'#fbbf24'},
+        {label:'✦ Experience',val:experience, set:onExp,    warn:999, color:'#a78bfa'},
+      ].map(({label,val,set,warn,color})=>(
+        <div key={label} style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,padding:'5px 8px',borderRadius:5,background:'#1a1a1a'}}>
+          <span style={{fontSize:10,color:val>=warn?'#ef4444':color,flex:1,fontWeight:500}}>{label}</span>
+          <button onClick={()=>set(v=>Math.max(0,v-1))} style={ctrBtn}>−</button>
+          <span style={{fontSize:14,fontWeight:700,color:val>=warn?'#ef4444':'#e0e0e0',minWidth:22,textAlign:'center'}}>{val}</span>
+          <button onClick={()=>set(v=>v+1)} style={ctrBtn}>+</button>
+        </div>
+      ))}
+      {poison>=10&&(
+        <div style={{padding:'5px 8px',borderRadius:5,background:'#1a0a0a',border:'1px solid #4a1a1a',fontSize:10,color:'#ef4444',textAlign:'center'}}>
+          ⚠ 10 poison counters — eliminated!
+        </div>
+      )}
+    </div>
+  )
+}
+const ctrBtn={padding:'1px 8px',border:'1px solid #2a2a2a',borderRadius:3,background:'#0d0d0d',color:'#666',fontSize:13,cursor:'pointer'}
 
 // ═══════════════════════════════════════════════════════════
+// MAIN BOARD
+// ═══════════════════════════════════════════════════════════
 export default function SoloBoard({ onBack }) {
-  // ── DECK STATE ────────────────────────────────────────────
-  const [deckList,   setDeckList]   = useState(() => shuffle(parseDeck(DEFAULT_DECK_TEXT)))
-  const [library,   setLibrary]    = useState(() => shuffle(parseDeck(DEFAULT_DECK_TEXT)))
-  const [hand,      setHand]       = useState([])
-  const [bf,        setBF]         = useState([])
-  const [gy,        setGY]         = useState([])
-  const [exileZ,    setExileZ]     = useState([])
-  const [cmdZ,      setCmdZ]       = useState([])
+  // ── DECK & ZONES ──────────────────────────────────────────
+  const [library,  setLibrary]  = useState(()=>shuffle(parseDeck(DEFAULT_DECK)))
+  const [hand,     setHand]     = useState([])
+  const [bf,       setBF]       = useState([])
+  const [gy,       setGY]       = useState([])
+  const [exileZ,   setExileZ]   = useState([])
+  const [cmdZ,     setCmdZ]     = useState([])
 
-  // ── GAME STATE ────────────────────────────────────────────
-  const [life,      setLife]       = useState(40)
-  const [turn,      setTurn]       = useState(1)
-  const [phase,     setPhaseVal]   = useState(3)
-  const [csub,      setCsub]       = useState(null)
-  const [counters,  setCounters]   = useState(0) // storm/poison/etc
-  const [imgErr,    setImgErr]     = useState({})
-  const [dragging,  setDragging]   = useState(null)
+  // ── GAME ──────────────────────────────────────────────────
+  const [life,     setLife]     = useState(40)
+  const [poison,   setPoison]   = useState(0)
+  const [energy,   setEnergy]   = useState(0)
+  const [exp,      setExp]      = useState(0)
+  const [turn,     setTurn]     = useState(1)
+  const [phase,    setPhaseVal] = useState(3)
+  const [csub,     setCsub]     = useState(null)
+  const [stack,    setStack]    = useState([])
+  const [priority, setPriority] = useState('You')
+  const [actLog,   setActLog]   = useState([])
+  const [dragging, setDragging] = useState(null)
+  const [imgErr,   setImgErr]   = useState({})
 
-  // ── UI STATE ──────────────────────────────────────────────
-  const [ctx,       setCtx]        = useState(null)
-  const [panel,     setPanel]      = useState(null) // 'gy'|'exile'|'cmd'|'lib'|'import'|'topN'
-  const [toast,     setToast]      = useState(null)
-  const [importTxt, setImportTxt]  = useState('')
-  const [topCards,  setTopCards]   = useState([])
-  const [showCounters, setShowCounters] = useState(false)
+  // ── UI ────────────────────────────────────────────────────
+  const [ctx,       setCtx]      = useState(null)
+  const [panel,     setPanel]    = useState(null)
+  const [toast,     setToast]    = useState(null)
+  const [showStack, setShowStack]= useState(false)
+  const [showCtrs,  setShowCtrs] = useState(false)
+  const [importTxt, setImportTxt]= useState('')
+  const [hovered,   setHovered]  = useState(null) // card object for preview
+  const [topCards,  setTopCards] = useState([])
 
   const bfRef    = useRef(null)
   const toastRef = useRef(null)
+  const hDrag    = useRef(null)
+  const bDrag    = useRef(null)
 
-  // ── INIT: draw opening hand ───────────────────────────────
-  useEffect(() => {
-    drawN(7, true)
-  }, [])
+  const deckTokens = getDeckTokens(DEFAULT_DECK)
 
-  function t(msg) {
-    setToast(msg)
-    clearTimeout(toastRef.current)
-    toastRef.current = setTimeout(() => setToast(null), 2000)
+  useEffect(() => { drawN(7, true) }, [])
+
+  // ── LOG ───────────────────────────────────────────────────
+  function log(text) {
+    setActLog(l => [...l, { text, turn, time: Date.now() }])
   }
 
-  // ── LIBRARY OPERATIONS ───────────────────────────────────
-  function drawN(n, init = false) {
-    setLibrary(lib => {
-      if (lib.length === 0) { t('Library empty!'); return lib }
-      const drawn = lib.slice(0, n).map(c => ({ ...c, id: 'h-'+Date.now()+Math.random() }))
-      if (!init) t(`Drew ${n} card${n>1?'s':''}`)
-      setHand(h => [...h, ...drawn])
+  // ── TOAST ─────────────────────────────────────────────────
+  function t(msg) {
+    setToast(msg); clearTimeout(toastRef.current)
+    toastRef.current = setTimeout(()=>setToast(null), 2000)
+  }
+
+  // ── PHASE ─────────────────────────────────────────────────
+  function goPhase(i) {
+    setPhaseVal(i)
+    setCsub(i===4?0:null)
+    t(PHASES[i])
+    log(`Phase → ${PHASES[i]}`)
+  }
+
+  // ── END TURN ──────────────────────────────────────────────
+  function endTurn() {
+    setBF(b=>b.map(c=>({...c,tapped:false,attacking:false,blocking:false,targeted:false})))
+    setTurn(n=>n+1); setPhaseVal(3); setCsub(null)
+    drawN(1)
+    log('End turn → untap, draw')
+  }
+
+  // ── DRAW ──────────────────────────────────────────────────
+  function drawN(n, init=false) {
+    setLibrary(lib=>{
+      if(lib.length===0){t('Library empty!');return lib}
+      const drawn=lib.slice(0,n).map(c=>({...c,id:'h-'+Date.now()+Math.random()}))
+      setHand(h=>[...h,...drawn])
+      if(!init){ t(`Drew ${n}`); log(`Drew ${n} card${n>1?'s':''}: ${drawn.map(c=>c.name).join(', ')}`) }
       return lib.slice(n)
     })
   }
 
   function drawOne() { drawN(1) }
 
-  function shuffleLib() {
-    setLibrary(l => shuffle(l))
-    t('Library shuffled')
-  }
+  // ── LIBRARY ACTIONS ───────────────────────────────────────
+  function shuffleLib() { setLibrary(l=>shuffle(l)); t('Shuffled'); log('Library shuffled') }
+  function lookTopN(n) { setTopCards(library.slice(0,n)); setPanel('topN') }
 
-  function lookTopN(n) {
-    setTopCards(library.slice(0, n))
-    setPanel('topN')
-  }
-
-  function bottomCard(idx) {
-    setLibrary(l => {
-      const card = l[idx]
-      const rest = l.filter((_,i)=>i!==idx)
-      return [...rest, card]
-    })
-    setTopCards(tc => tc.filter((_,i)=>i!==0))
-    t('Card moved to bottom')
-  }
-
-  // ── PHASE ────────────────────────────────────────────────
-  function goPhase(i) {
-    setPhaseVal(i)
-    if (i !== 4) setCsub(null)
-    else setCsub(0)
-    t(PHASES[i])
-  }
-
-  // ── END TURN ─────────────────────────────────────────────
-  function endTurn() {
-    setBF(b => b.map(c => ({ ...c, tapped:false, attacking:false, blocking:false, targeted:false })))
-    setTurn(n => n+1)
-    setPhaseVal(3); setCsub(null)
-    drawOne()
-    t('Turn ' + (turn+1))
-  }
-
-  // ── RESTART ──────────────────────────────────────────────
+  // ── RESTART ───────────────────────────────────────────────
   function restart() {
-    const fresh = shuffle(parseDeck(DEFAULT_DECK_TEXT))
-    setLibrary(fresh)
-    setHand([])
-    setBF([])
-    setGY([])
-    setExileZ([])
-    setCmdZ([])
-    setLife(40)
-    setTurn(1)
-    setPhaseVal(3)
-    setCsub(null)
-    setCounters(0)
-    setTimeout(() => drawN(7, true), 50)
-    t('Game restarted')
+    const fresh=shuffle(parseDeck(DEFAULT_DECK))
+    setLibrary(fresh); setHand([]); setBF([]); setGY([]); setExileZ([]); setCmdZ([])
+    setLife(40); setPoison(0); setEnergy(0); setExp(0)
+    setTurn(1); setPhaseVal(3); setCsub(null)
+    setStack([]); setPriority('You'); setActLog([])
+    setTimeout(()=>drawN(7,true),50)
+    t('Game restarted'); log('=== GAME RESTARTED ===')
   }
 
-  // ── ADD TOKEN ────────────────────────────────────────────
-  function addToken(name, pt, col='cg') {
-    const x = 50 + Math.random()*200
-    const y = 50 + Math.random()*100
-    setBF(b => [...b, { id:'tok-'+Date.now(), name, type:'Token', col, art:'◈', pt, x, y, tapped:false, attacking:false, blocking:false, targeted:false, counters:0, isToken:true }])
-    t(`${name} token created`)
+  // ── IMPORT ────────────────────────────────────────────────
+  function importDeck() {
+    const parsed=parseDeck(importTxt)
+    if(parsed.length===0){t('No cards found');return}
+    const shuffled=shuffle(parsed)
+    setLibrary(shuffled); setHand([]); setBF([]); setGY([]); setExileZ([]); setCmdZ([])
+    setLife(40); setPoison(0); setEnergy(0); setExp(0)
+    setTurn(1); setPhaseVal(3); setCsub(null); setStack([]); setPriority('You')
+    setPanel(null); setImportTxt('')
+    setTimeout(()=>drawN(7,true),50)
+    t(`Loaded ${parsed.length} cards`); log(`Deck imported: ${parsed.length} cards`)
   }
 
-  // ── PLAY FROM HAND ───────────────────────────────────────
+  // ── PLAY FROM HAND ────────────────────────────────────────
   function playCard(handId, x, y) {
-    const card = hand.find(c=>c.id===handId)
-    if (!card) return
-    setHand(h => h.filter(c=>c.id!==handId))
-    setBF(b => [...b, { ...card, id:'bf-'+Date.now(), x:Math.max(0,x), y:Math.max(0,y), tapped:false, attacking:false, blocking:false, targeted:false, counters:0 }])
-    t(card.name + ' played')
+    const card=hand.find(c=>c.id===handId)
+    if(!card)return
+    setHand(h=>h.filter(c=>c.id!==handId))
+    const newCard={...card,id:'bf-'+Date.now(),x:Math.max(0,x),y:Math.max(0,y),tapped:false,attacking:false,blocking:false,targeted:false,counters:0}
+    setBF(b=>[...b,newCard])
+    t(card.name+' played'); log(`Played ${card.name}`)
   }
 
-  // ── MOVE ON BF ───────────────────────────────────────────
-  function moveBF(id, x, y) {
-    setBF(b => b.map(c => c.id===id ? {...c, x:Math.max(0,x), y:Math.max(0,y)} : c))
-  }
+  // ── MOVE ON BF ────────────────────────────────────────────
+  function moveBF(id,x,y) { setBF(b=>b.map(c=>c.id===id?{...c,x:Math.max(0,x),y:Math.max(0,y)}:c)) }
 
-  // ── TAP ──────────────────────────────────────────────────
+  // ── TAP ───────────────────────────────────────────────────
   function tapCard(id) {
-    setBF(b => b.map(c => c.id===id ? {...c, tapped:!c.tapped} : c))
+    setBF(b=>b.map(c=>{
+      if(c.id!==id)return c
+      const next={...c,tapped:!c.tapped}
+      log(`${c.name} ${next.tapped?'tapped':'untapped'}`)
+      return next
+    }))
   }
 
-  // ── SEND TO ZONE ─────────────────────────────────────────
-  function toZone(id, src, zone) {
+  // ── SEND TO ZONE ──────────────────────────────────────────
+  function toZone(id,src,zone) {
     let card
-    if (src==='hand') { card=hand.find(c=>c.id===id); setHand(h=>h.filter(c=>c.id!==id)) }
-    else              { card=bf.find(c=>c.id===id);   setBF(b=>b.filter(c=>c.id!==id)) }
-    if (!card) return
-    const e = {...card, id:'z-'+Date.now()+Math.random()}
-    if (zone==='gy')     { setGY(z=>[...z,e]);     t(card.name+' → graveyard') }
-    if (zone==='exile')  { setExileZ(z=>[...z,e]); t(card.name+' → exile') }
-    if (zone==='cmd')    { setCmdZ(z=>[...z,e]);   t(card.name+' → command zone') }
+    if(src==='hand'){card=hand.find(c=>c.id===id);setHand(h=>h.filter(c=>c.id!==id))}
+    else            {card=bf.find(c=>c.id===id);  setBF(b=>b.filter(c=>c.id!==id))}
+    if(!card)return
+    const e={...card,id:'z-'+Date.now()+Math.random()}
+    if(zone==='gy')    {setGY(z=>[...z,e])}
+    if(zone==='exile') {setExileZ(z=>[...z,e])}
+    if(zone==='cmd')   {setCmdZ(z=>[...z,e])}
+    log(`${card.name} → ${zone}`)
   }
 
-  // ── RETRIEVE FROM ZONE ───────────────────────────────────
-  function retrieve(zone, idx, dest) {
-    let card, setter
-    if (zone==='gy')    { card=gy[idx];    setter=setGY }
-    if (zone==='exile') { card=exileZ[idx]; setter=setExileZ }
-    if (zone==='cmd')   { card=cmdZ[idx];  setter=setCmdZ }
-    if (!card) return
-    setter(z => z.filter((_,i)=>i!==idx))
-    if (dest==='hand') { setHand(h=>[...h,{...card,id:'r-'+Date.now()}]); t(card.name+' → hand') }
-    if (dest==='bf')   { setBF(b=>[...b,{...card,id:'bf-'+Date.now(),x:60,y:60,tapped:false,attacking:false,blocking:false,targeted:false,counters:0}]); t(card.name+' → battlefield') }
-    if (dest==='lib')  { setLibrary(l=>[...l,{...card,id:'lib-'+Date.now()}]); t(card.name+' → library') }
+  // ── RETRIEVE FROM ZONE ────────────────────────────────────
+  function retrieve(zone,idx,dest) {
+    let card,setter
+    if(zone==='gy')   {card=gy[idx];   setter=setGY}
+    if(zone==='exile'){card=exileZ[idx];setter=setExileZ}
+    if(zone==='cmd')  {card=cmdZ[idx]; setter=setCmdZ}
+    if(!card)return
+    setter(z=>z.filter((_,i)=>i!==idx))
+    if(dest==='hand'){setHand(h=>[...h,{...card,id:'r-'+Date.now()}]);t(card.name+' → hand')}
+    if(dest==='bf')  {setBF(b=>[...b,{...card,id:'bf-'+Date.now(),x:60,y:60,tapped:false,attacking:false,blocking:false,targeted:false,counters:0}]);t(card.name+' → BF')}
+    if(dest==='lib') {setLibrary(l=>[...l,{...card,id:'lib-'+Date.now()}]);t(card.name+' → library')}
+    log(`${card.name} retrieved from ${zone} → ${dest}`)
   }
+
+  function retrieveLib(idx,dest) {
+    const card=library[idx]
+    if(!card)return
+    setLibrary(l=>l.filter((_,i)=>i!==idx))
+    if(dest==='hand'){setHand(h=>[...h,{...card,id:'h-'+Date.now()}]);t(card.name+' → hand')}
+    if(dest==='bf')  {setBF(b=>[...b,{...card,id:'bf-'+Date.now(),x:60,y:60,tapped:false,attacking:false,blocking:false,targeted:false,counters:0}]);t(card.name+' → BF')}
+    log(`${card.name} from library → ${dest}`)
+  }
+
+  // ── ADD TOKEN ─────────────────────────────────────────────
+  function addToken(tok,qty=1) {
+    const newCards=[]
+    for(let i=0;i<qty;i++){
+      const x=80+Math.random()*280+i*12
+      const y=40+Math.random()*100+i*8
+      newCards.push({
+        id:'tok-'+Date.now()+i+Math.random().toString(36).substr(2,4),
+        name:tok.name, type:tok.type||'Token',
+        col: tok.color==='Green'?'cg':tok.color==='Red'?'cr':tok.color==='White'?'cw':tok.color==='Blue'?'cu':tok.color==='Black'?'cb':'ca',
+        art:tok.art||'◈', pt:tok.pt||'', x, y,
+        tapped:false,attacking:false,blocking:false,targeted:false,counters:0,
+        isToken:true, tokenScryfall:tok.scryfall||tok.name,
+      })
+    }
+    setBF(b=>[...b,...newCards])
+    t(`${qty}× ${tok.name}`); log(`Created ${qty}× ${tok.name} token${qty>1?'s':''}`)
+  }
+
+  // ── STACK ─────────────────────────────────────────────────
+  function pushStack(item){ setStack(s=>[...s,item]); log(`Stack: ${item.name} added`) }
+  function popStack(){
+    setStack(s=>{
+      if(s.length===0)return s
+      log(`Stack: ${s[s.length-1].name} resolved`)
+      return s.slice(0,-1)
+    })
+  }
+  function passPriority(){ log(`Priority passed`); t('Priority passed') }
+  function clearStack(){ setStack([]); log('Stack cleared') }
 
   // ── CONTEXT MENU ─────────────────────────────────────────
   function doCtx(action) {
-    if (!ctx) return
-    const {card, src} = ctx
-    setCtx(null)
-    switch(action) {
-      case 'tap':    tapCard(card.id); break
-      case 'atk':    setBF(b=>b.map(c=>c.id===card.id?{...c,attacking:!c.attacking}:c)); break
-      case 'blk':    setBF(b=>b.map(c=>c.id===card.id?{...c,blocking:!c.blocking}:c)); break
-      case 'tgt':    setBF(b=>b.map(c=>({...c,targeted:c.id===card.id?!c.targeted:c.targeted}))); break
-      case '+ctr':   setBF(b=>b.map(c=>c.id===card.id?{...c,counters:(c.counters||0)+1}:c)); t('+1/+1 on '+card.name); break
-      case '-ctr':   setBF(b=>b.map(c=>c.id===card.id?{...c,counters:Math.max(0,(c.counters||0)-1)}:c)); break
-      case 'dbl':    setBF(b=>b.map(c=>c.id===card.id?{...c,counters:(c.counters||0)+2}:c)); t('+2 on '+card.name); break
-      case 'hand':
-        const bcard = bf.find(c=>c.id===card.id)
-        if(bcard){setBF(b=>b.filter(c=>c.id!==card.id));setHand(h=>[...h,{...bcard,id:'r-'+Date.now()}]);t(card.name+' → hand')}
+    if(!ctx)return
+    const {card,src}=ctx; setCtx(null)
+    switch(action){
+      case 'tap': tapCard(card.id); break
+      case 'atk': setBF(b=>b.map(c=>c.id===card.id?{...c,attacking:!c.attacking}:c)); log(`${card.name} ${card.attacking?'no longer attacking':'attacking'}`); break
+      case 'blk': setBF(b=>b.map(c=>c.id===card.id?{...c,blocking:!c.blocking}:c)); log(`${card.name} blocking`); break
+      case 'tgt': setBF(b=>b.map(c=>({...c,targeted:c.id===card.id?!c.targeted:c.targeted}))); log(`${card.name} targeted`); break
+      case '+ctr': setBF(b=>b.map(c=>c.id===card.id?{...c,counters:(c.counters||0)+1}:c)); log(`+1/+1 on ${card.name}`); break
+      case '-ctr': setBF(b=>b.map(c=>c.id===card.id?{...c,counters:Math.max(0,(c.counters||0)-1)}:c)); break
+      case '+2ctr':setBF(b=>b.map(c=>c.id===card.id?{...c,counters:(c.counters||0)+2}:c)); log(`+2/+2 on ${card.name}`); break
+      case 'copy':
+        const orig=bf.find(c=>c.id===card.id)
+        if(orig){setBF(b=>[...b,{...orig,id:'copy-'+Date.now(),x:orig.x+12,y:orig.y+12}]);log(`Copied ${card.name}`)}
         break
       case 'top':
-        const btop = bf.find(c=>c.id===card.id)
-        if(btop){setBF(b=>b.filter(c=>c.id!==card.id));setLibrary(l=>[{...btop,id:'lib-'+Date.now()},...l]);t(card.name+' → top of library')}
+        const btop=bf.find(c=>c.id===card.id)
+        if(btop){setBF(b=>b.filter(c=>c.id!==card.id));setLibrary(l=>[{...btop,id:'lib-'+Date.now()},...l]);log(`${card.name} → top of library`)}
         break
-      case 'gy':      toZone(card.id, src, 'gy'); break
-      case 'exile':   toZone(card.id, src, 'exile'); break
-      case 'cmd':     toZone(card.id, src, 'cmd'); break
-      case 'destroy': toZone(card.id, src, 'gy'); break
-      case 'copy':
-        const orig = bf.find(c=>c.id===card.id)
-        if(orig) setBF(b=>[...b,{...orig,id:'copy-'+Date.now(),x:orig.x+10,y:orig.y+10}])
-        t('Copy of '+card.name+' created'); break
+      case 'stack':
+        pushStack({id:'s-'+Date.now(),name:card.name,caster:'You',art:'🌊'})
+        break
+      case 'hand':
+        const bcard=bf.find(c=>c.id===card.id)
+        if(bcard){setBF(b=>b.filter(c=>c.id!==card.id));setHand(h=>[...h,{...bcard,id:'r-'+Date.now()}]);log(`${card.name} returned to hand`)}
+        break
+      case 'gy':      toZone(card.id,src,'gy'); break
+      case 'exile':   toZone(card.id,src,'exile'); break
+      case 'cmd':     toZone(card.id,src,'cmd'); break
+      case 'destroy': toZone(card.id,src,'gy'); log(`${card.name} destroyed`); break
     }
   }
 
-  // ── IMPORT DECK ───────────────────────────────────────────
-  function importDeck() {
-    const parsed = parseDeck(importTxt)
-    if (parsed.length === 0) { t('No cards found — check format'); return }
-    const shuffled = shuffle(parsed)
-    setLibrary(shuffled)
-    setHand([])
-    setBF([])
-    setGY([])
-    setExileZ([])
-    setCmdZ([])
-    setLife(40)
-    setTurn(1)
-    setCounters(0)
-    setPanel(null)
-    setImportTxt('')
-    setTimeout(() => drawN(7, true), 50)
-    t(`Loaded ${parsed.length} cards, drew 7`)
-  }
-
-  // ── DRAG FROM HAND ───────────────────────────────────────
-  const hDrag = useRef(null)
-
-  function handDown(e, card) {
-    if (e.button !== 0) return
-    e.preventDefault()
-    hDrag.current = { card, moved:false, sx:e.clientX, sy:e.clientY }
-
-    const ghost = mkGhost(e.clientX-46, e.clientY-64, card.name, 92)
-    document.body.appendChild(ghost)
-
-    function mv(me) {
-      ghost.style.left = (me.clientX-46)+'px'
-      ghost.style.top  = (me.clientY-64)+'px'
-      if (Math.abs(me.clientX-e.clientX)>4||Math.abs(me.clientY-e.clientY)>4) hDrag.current.moved=true
-      const bf = bfRef.current
-      if (bf) {
-        const r=bf.getBoundingClientRect()
-        const over=me.clientX>=r.left&&me.clientX<=r.right&&me.clientY>=r.top&&me.clientY<=r.bottom
-        bf.style.outline = over?'2px solid #a78bfa':''
-      }
+  // ── DRAG: HAND → BF ──────────────────────────────────────
+  function handDown(e,card) {
+    if(e.button!==0)return; e.preventDefault()
+    hDrag.current={card,moved:false,sx:e.clientX,sy:e.clientY}
+    const g=mkGhost(e.clientX-46,e.clientY-64,card.name)
+    document.body.appendChild(g)
+    function mv(me){
+      g.style.left=(me.clientX-46)+'px'; g.style.top=(me.clientY-64)+'px'
+      if(Math.abs(me.clientX-e.clientX)>4||Math.abs(me.clientY-e.clientY)>4) hDrag.current.moved=true
+      const bfEl=bfRef.current
+      if(bfEl){const r=bfEl.getBoundingClientRect();const ov=me.clientX>=r.left&&me.clientX<=r.right&&me.clientY>=r.top&&me.clientY<=r.bottom;bfEl.style.outline=ov?'2px solid #a78bfa':''}
     }
-    function up(me) {
-      window.removeEventListener('mousemove',mv)
-      window.removeEventListener('mouseup',up)
-      ghost.remove()
-      if (bfRef.current) bfRef.current.style.outline=''
-      if (!hDrag.current?.moved) { hDrag.current=null; return }
-      const bfEl = bfRef.current
-      if (bfEl) {
-        const r=bfEl.getBoundingClientRect()
-        if (me.clientX>=r.left&&me.clientX<=r.right&&me.clientY>=r.top&&me.clientY<=r.bottom) {
-          playCard(card.id, me.clientX-r.left-46, me.clientY-r.top-64)
-        }
-      }
+    function up(me){
+      window.removeEventListener('mousemove',mv); window.removeEventListener('mouseup',up)
+      g.remove(); if(bfRef.current)bfRef.current.style.outline=''
+      if(!hDrag.current?.moved){hDrag.current=null;return}
+      const bfEl=bfRef.current
+      if(bfEl){const r=bfEl.getBoundingClientRect();if(me.clientX>=r.left&&me.clientX<=r.right&&me.clientY>=r.top&&me.clientY<=r.bottom){playCard(card.id,me.clientX-r.left-46,me.clientY-r.top-64)}}
       hDrag.current=null
     }
-    window.addEventListener('mousemove',mv)
-    window.addEventListener('mouseup',up)
+    window.addEventListener('mousemove',mv); window.addEventListener('mouseup',up)
   }
 
-  // ── DRAG ON BF ───────────────────────────────────────────
-  const bDrag = useRef(null)
-
-  function bfDown(e, card) {
-    if (e.button!==0) return
-    e.preventDefault(); e.stopPropagation()
-    const bfEl=bfRef.current
-    if (!bfEl) return
+  // ── DRAG: BF → BF / PILE ─────────────────────────────────
+  function bfDown(e,card) {
+    if(e.button!==0)return; e.preventDefault(); e.stopPropagation()
+    const bfEl=bfRef.current; if(!bfEl)return
     const r=bfEl.getBoundingClientRect()
-    const offX=e.clientX-r.left-card.x
-    const offY=e.clientY-r.top-card.y
+    const offX=e.clientX-r.left-card.x, offY=e.clientY-r.top-card.y
     bDrag.current={card,moved:false,sx:e.clientX,sy:e.clientY,offX,offY}
     setDragging(card.id)
-
-    const ghost=mkGhost(e.clientX-offX, e.clientY-offY, card.name, 92)
-    document.body.appendChild(ghost)
-
-    function mv(me) {
-      ghost.style.left=(me.clientX-offX)+'px'
-      ghost.style.top=(me.clientY-offY)+'px'
+    const g=mkGhost(e.clientX-offX,e.clientY-offY,card.name)
+    document.body.appendChild(g)
+    function mv(me){
+      g.style.left=(me.clientX-offX)+'px'; g.style.top=(me.clientY-offY)+'px'
       if(Math.abs(me.clientX-e.clientX)>3||Math.abs(me.clientY-e.clientY)>3) bDrag.current.moved=true
-      // pile highlight
       document.querySelectorAll('[data-pile]').forEach(p=>{
         const pr=p.getBoundingClientRect()
-        const over=me.clientX>=pr.left&&me.clientX<=pr.right&&me.clientY>=pr.top&&me.clientY<=pr.bottom
-        p.style.borderColor=over?'#a78bfa':''
-        p.style.background=over?'rgba(167,139,250,.1)':''
+        const ov=me.clientX>=pr.left&&me.clientX<=pr.right&&me.clientY>=pr.top&&me.clientY<=pr.bottom
+        p.style.borderColor=ov?'#a78bfa':''; p.style.background=ov?'rgba(167,139,250,.1)':''
       })
     }
-    function up(me) {
-      window.removeEventListener('mousemove',mv)
-      window.removeEventListener('mouseup',up)
-      ghost.remove()
-      setDragging(null)
+    function up(me){
+      window.removeEventListener('mousemove',mv); window.removeEventListener('mouseup',up)
+      g.remove(); setDragging(null)
       document.querySelectorAll('[data-pile]').forEach(p=>{p.style.borderColor='';p.style.background=''})
-
-      if (!bDrag.current?.moved) { tapCard(card.id); bDrag.current=null; return }
-
-      // check pile drop
-      let droppedOnPile=false
+      if(!bDrag.current?.moved){tapCard(card.id);bDrag.current=null;return}
+      let onPile=false
       document.querySelectorAll('[data-pile]').forEach(p=>{
         const pr=p.getBoundingClientRect()
-        if(me.clientX>=pr.left&&me.clientX<=pr.right&&me.clientY>=pr.top&&me.clientY<=pr.bottom){
-          toZone(card.id,'bf',p.dataset.pile)
-          droppedOnPile=true
-        }
+        if(me.clientX>=pr.left&&me.clientX<=pr.right&&me.clientY>=pr.top&&me.clientY<=pr.bottom){toZone(card.id,'bf',p.dataset.pile);onPile=true}
       })
-      if(!droppedOnPile){
-        const r2=bfRef.current?.getBoundingClientRect()
-        if(r2) moveBF(card.id, me.clientX-r2.left-offX, me.clientY-r2.top-offY)
-      }
+      if(!onPile){const r2=bfRef.current?.getBoundingClientRect();if(r2)moveBF(card.id,me.clientX-r2.left-offX,me.clientY-r2.top-offY)}
       bDrag.current=null
     }
-    window.addEventListener('mousemove',mv)
-    window.addEventListener('mouseup',up)
+    window.addEventListener('mousemove',mv); window.addEventListener('mouseup',up)
   }
 
-  function mkGhost(left, top, name, w=92) {
+  function mkGhost(left,top,name) {
     const g=document.createElement('div')
-    g.style.cssText=`position:fixed;pointer-events:none;z-index:9999;width:${w}px;height:${Math.round(w*1.4)}px;border-radius:6px;border:2px solid #a78bfa;box-shadow:0 12px 32px rgba(0,0,0,.9);background:#0d1a0d;display:flex;align-items:center;justify-content:center;font-size:11px;color:#aaa;opacity:.9;transform:rotate(3deg) scale(1.04);left:${left}px;top:${top}px;overflow:hidden;`
+    g.style.cssText=`position:fixed;pointer-events:none;z-index:9999;width:92px;height:128px;border-radius:7px;border:2px solid #a78bfa;box-shadow:0 12px 32px rgba(0,0,0,.9);background:#0d1a0d;overflow:hidden;opacity:.9;transform:rotate(3deg) scale(1.04);left:${left}px;top:${top}px;`
     const img=document.createElement('img')
-    img.src=SF(name)
-    img.style.cssText='width:100%;height:100%;object-fit:cover;'
-    img.onerror=()=>{g.textContent=name}
-    g.appendChild(img)
-    return g
+    img.src=SF(name); img.style.cssText='width:100%;height:100%;object-fit:cover;'
+    img.onerror=()=>{g.textContent=name;g.style.display='flex';g.style.alignItems='center';g.style.justifyContent='center';g.style.fontSize='10px';g.style.color='#aaa';g.style.padding='6px';g.style.textAlign='center';}
+    g.appendChild(img); return g
   }
 
-  // ── RENDER ───────────────────────────────────────────────
-  const lifeCol = life<=10?'#ef4444':life<=20?'#f59e0b':'#e0e0e0'
-  const panelArr = panel==='gy'?gy:panel==='exile'?exileZ:panel==='cmd'?cmdZ:[]
+  // ── RENDER ────────────────────────────────────────────────
+  const lifeCol=life<=10?'#ef4444':life<=20?'#f59e0b':'#e0e0e0'
+  const panelCards=panel==='gy'?gy:panel==='exile'?exileZ:panel==='cmd'?cmdZ:[]
+  const hoveredCard = hovered ? (bf.find(c=>c.id===hovered)||hand.find(c=>c.id===hovered)) : null
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#1a1a1a',overflow:'hidden',fontFamily:'system-ui,sans-serif',color:'#e0e0e0',userSelect:'none'}}>
 
-      {/* ── TOP BAR (Moxfield style) ── */}
-      <div style={{display:'flex',alignItems:'center',gap:0,padding:'0 8px',background:'#111',borderBottom:'1px solid #333',flexShrink:0,height:40}}>
-        {/* LEFT: life + counters + turn */}
-        <div style={{display:'flex',alignItems:'center',gap:6}}>
-          <button onClick={()=>setLife(l=>Math.max(0,l-1))} style={topBtn}>−</button>
-          <span style={{fontSize:18,fontWeight:700,color:lifeCol,minWidth:32,textAlign:'center'}}>{life}</span>
-          <button onClick={()=>setLife(l=>l+1)} style={topBtn}>+</button>
-          <div style={{width:1,height:20,background:'#333',margin:'0 4px'}}/>
+      {/* ── TOP BAR ── */}
+      <div style={{display:'flex',alignItems:'center',gap:0,padding:'0 8px',background:'#111',borderBottom:'1px solid #333',flexShrink:0,height:42}}>
+
+        {/* LIFE + COUNTERS */}
+        <div style={{display:'flex',alignItems:'center',gap:4,position:'relative'}}>
+          <button onClick={()=>setLife(l=>Math.max(0,l-1))} style={TB}>−</button>
+          <span style={{fontSize:20,fontWeight:700,color:lifeCol,minWidth:34,textAlign:'center'}}>{life}</span>
+          <button onClick={()=>setLife(l=>l+1)} style={TB}>+</button>
+          <div style={{width:1,height:22,background:'#333',margin:'0 4px'}}/>
           <div style={{position:'relative'}}>
-            <button onClick={()=>setShowCounters(s=>!s)} style={{...topBtn,fontSize:11}}>Counters ▾</button>
-            {showCounters&&(
-              <div style={{position:'absolute',top:'100%',left:0,background:'#111',border:'1px solid #333',borderRadius:6,padding:8,zIndex:200,minWidth:140,boxShadow:'0 8px 24px rgba(0,0,0,.8)'}}>
-                <div style={{fontSize:10,color:'#555',marginBottom:6,textTransform:'uppercase',letterSpacing:'.07em'}}>Poison / Storm / Custom</div>
-                <div style={{display:'flex',alignItems:'center',gap:6}}>
-                  <button onClick={()=>setCounters(c=>Math.max(0,c-1))} style={topBtn}>−</button>
-                  <span style={{fontSize:16,fontWeight:700,minWidth:24,textAlign:'center'}}>{counters}</span>
-                  <button onClick={()=>setCounters(c=>c+1)} style={topBtn}>+</button>
-                </div>
-              </div>
-            )}
+            <button onClick={()=>setShowCtrs(s=>!s)} style={{...TB,fontSize:11,padding:'3px 8px'}}>
+              Counters {poison>0&&<span style={{color:'#4ade80',marginLeft:2}}>{poison}☠</span>} ▾
+            </button>
+            {showCtrs&&<CountersWidget poison={poison} energy={energy} experience={exp} onPoison={setPoison} onEnergy={setEnergy} onExp={setExp} onClose={()=>setShowCtrs(false)}/>}
           </div>
-          <div style={{width:1,height:20,background:'#333',margin:'0 4px'}}/>
-          <span style={{fontSize:12,color:'#888'}}>Turn <b style={{color:'#e0e0e0'}}>{turn}</b></span>
+          <div style={{width:1,height:22,background:'#333',margin:'0 4px'}}/>
+          <span style={{fontSize:11,color:'#777'}}>Turn <b style={{color:'#e0e0e0'}}>{turn}</b></span>
         </div>
 
-        {/* CENTER: phase bar */}
-        <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:1}}>
+        {/* PHASE BAR */}
+        <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:1,padding:'0 8px'}}>
           {PHASES.map((p,i)=>(
             <React.Fragment key={p}>
-              <div onClick={()=>goPhase(i)} style={{padding:'3px 9px',fontSize:9,borderRadius:3,cursor:'pointer',textTransform:'uppercase',letterSpacing:'.05em',color:phase===i?'#fff':phase>i?'#444':'#333',background:phase===i?'#2563eb':'transparent',transition:'all .1s'}}>
+              <div onClick={()=>goPhase(i)} style={{padding:'3px 8px',fontSize:9,borderRadius:3,cursor:'pointer',textTransform:'uppercase',letterSpacing:'.05em',color:phase===i?'#fff':phase>i?'#444':'#2a2a2a',background:phase===i?'#2563eb':'transparent',transition:'all .1s'}}>
                 {p}
               </div>
-              {i<PHASES.length-1&&<span style={{color:'#2a2a2a',fontSize:10}}>›</span>}
+              {i<PHASES.length-1&&<span style={{color:'#222',fontSize:10}}>›</span>}
             </React.Fragment>
           ))}
         </div>
 
-        {/* RIGHT: action buttons */}
+        {/* RIGHT ACTIONS */}
         <div style={{display:'flex',alignItems:'center',gap:4}}>
-          <button onClick={restart}              style={actionBtn}>Restart</button>
-          <button onClick={()=>setPanel('tokens')} style={actionBtn}>Add Token ▾</button>
-          <button onClick={shuffleLib}            style={actionBtn}>Shuffle</button>
-          <button onClick={()=>lookTopN(1)}       style={actionBtn}>Top Card</button>
-          <button onClick={()=>setPanel('lib')}   style={actionBtn}>View Library</button>
-          <button onClick={()=>setPanel('import')} style={actionBtn}>Import Deck</button>
-          <button onClick={drawOne}               style={actionBtn}>Draw</button>
-          <button onClick={endTurn}               style={{...actionBtn,background:'#2563eb',border:'1px solid #3b82f6',color:'#fff',fontWeight:600}}>Next Turn</button>
+          <button onClick={()=>setShowStack(s=>!s)} style={{...AB,borderColor:showStack?'#2a2050':'#333',background:showStack?'#0d0a1e':'#1a1a1a',color:showStack?'#a78bfa':'#ccc'}}>
+            ⚡ Stack{stack.length>0?` (${stack.length})`:''}
+          </button>
+          <button onClick={restart}               style={AB}>Restart</button>
+          <button onClick={()=>setPanel('tokens')} style={AB}>Add Token ▾</button>
+          <button onClick={shuffleLib}             style={AB}>Shuffle</button>
+          <button onClick={()=>lookTopN(1)}        style={AB}>Top Card</button>
+          <button onClick={()=>setPanel('lib')}    style={AB}>Library</button>
+          <button onClick={()=>setPanel('import')} style={AB}>Import</button>
+          <button onClick={drawOne}                style={AB}>Draw</button>
+          <button onClick={endTurn}                style={{...AB,background:'#2563eb',border:'1px solid #3b82f6',color:'#fff',fontWeight:600}}>Next Turn</button>
         </div>
       </div>
 
       {/* COMBAT SUB-PHASES */}
       {phase===4&&(
-        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:1,padding:'3px 8px',background:'#0d0d0d',borderBottom:'1px solid #222',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:1,padding:'2px 8px',background:'#0d0d0d',borderBottom:'1px solid #222',flexShrink:0}}>
           <span style={{fontSize:8,color:'#555',marginRight:6,textTransform:'uppercase',letterSpacing:'.06em'}}>Combat ›</span>
           {CSUBS.map((s,i)=>(
             <React.Fragment key={s}>
-              <div onClick={()=>setCsub(i)} style={{padding:'2px 8px',fontSize:9,borderRadius:3,cursor:'pointer',textTransform:'uppercase',color:csub===i?'#a78bfa':'#333',background:csub===i?'#14102a':'transparent',border:csub===i?'1px solid #3a2d6a':'1px solid transparent'}}>
+              <div onClick={()=>setCsub(i)} style={{padding:'2px 8px',fontSize:8,borderRadius:3,cursor:'pointer',textTransform:'uppercase',color:csub===i?'#a78bfa':'#333',background:csub===i?'#14102a':'transparent',border:csub===i?'1px solid #3a2d6a':'1px solid transparent'}}>
                 {s}
               </div>
-              {i<3&&<span style={{color:'#222',fontSize:10}}>›</span>}
+              {i<3&&<span style={{color:'#222',fontSize:9}}>›</span>}
             </React.Fragment>
           ))}
         </div>
       )}
 
       {/* ── BATTLEFIELD ── */}
-      <div
-        ref={bfRef}
-        style={{flex:1,position:'relative',overflow:'hidden',background:'#141414',cursor:'default'}}
-        onClick={()=>{setCtx(null);setShowCounters(false)}}
-      >
+      <div ref={bfRef} style={{flex:1,position:'relative',overflow:'hidden',background:'#141414',cursor:'default'}} onClick={()=>{setCtx(null);setShowCtrs(false)}}>
         {bf.length===0&&(
-          <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'#2a2a2a',pointerEvents:'none',flexDirection:'column',gap:8}}>
-            <div>Drag cards from hand to play them here</div>
-            <div style={{fontSize:11,color:'#222'}}>Click a card to tap · Right-click for options</div>
+          <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'#1e1e1e',flexDirection:'column',gap:6,pointerEvents:'none'}}>
+            <div>Drag cards from your hand to play them</div>
+            <div style={{fontSize:10,color:'#181818'}}>Click to tap · Right-click for options · Drag to reposition</div>
           </div>
         )}
 
         {bf.map(card=>{
-          const err=imgErr[card.id+'bf']
-          const borderCol=card.targeted?'#60a5fa':card.attacking?'#ef4444':card.blocking?'#f59e0b':'#444'
+          const err=imgErr[card.id]
+          const bc=card.targeted?'#60a5fa':card.attacking?'#ef4444':card.blocking?'#f59e0b':'#3a3a3a'
           return (
             <div key={card.id}
               onMouseDown={e=>bfDown(e,card)}
+              onMouseEnter={()=>setHovered(card.id)}
+              onMouseLeave={()=>setHovered(null)}
               onContextMenu={e=>{e.preventDefault();e.stopPropagation();setCtx({x:e.clientX,y:e.clientY,card,src:'bf'})}}
               style={{
-                position:'absolute',left:card.x,top:card.y,
-                width:92,height:128,
-                borderRadius:7,border:`1.5px solid ${borderCol}`,
-                background:'#0d1a0d',
+                position:'absolute',left:card.x,top:card.y,width:92,height:128,
+                borderRadius:7,border:`1.5px solid ${bc}`,background:'#0d1a0d',
                 cursor:'grab',overflow:'hidden',
-                transform:card.tapped?'rotate(15deg)':'none',
-                transformOrigin:'50% 85%',
+                transform:card.tapped?'rotate(15deg)':'none',transformOrigin:'50% 85%',
                 opacity:dragging===card.id?0.2:1,
-                zIndex:card.attacking?50:card.tapped?5:10,
-                boxShadow:card.attacking?'0 0 0 2px rgba(239,68,68,.4),0 4px 12px rgba(0,0,0,.6)':card.targeted?'0 0 0 2px rgba(96,165,250,.4)':'0 3px 10px rgba(0,0,0,.7)',
+                zIndex:card.attacking?50:10,
+                boxShadow:card.attacking?'0 0 0 2px rgba(239,68,68,.35),0 4px 14px rgba(0,0,0,.7)':card.targeted?'0 0 0 2px rgba(96,165,250,.35)':'0 3px 10px rgba(0,0,0,.7)',
                 userSelect:'none',transition:'opacity .1s',
               }}>
               {!err?(
-                <img src={SF(card.tokenScryfall || card.name)} alt={card.name} draggable={false}
+                <img src={SF(card.tokenScryfall||card.name)} alt={card.name} draggable={false}
                   style={{width:'100%',height:'100%',objectFit:'cover',display:'block',pointerEvents:'none'}}
-                  onError={()=>setImgErr(p=>({...p,[card.id+'bf']:true}))}/>
+                  onError={()=>setImgErr(p=>({...p,[card.id]:true}))}/>
               ):(
                 <div style={{width:'100%',height:'100%',background:'#1a1a2a',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:4}}>
-                  <div style={{fontSize:9,color:'#aaa',textAlign:'center',lineHeight:1.3,wordBreak:'break-word'}}>{card.name}</div>
-                  {card.pt&&<div style={{fontSize:10,fontWeight:700,color:'#ccc',marginTop:4}}>{card.pt}</div>}
+                  <div style={{fontSize:8,color:'#aaa',textAlign:'center',lineHeight:1.3}}>{card.name}</div>
+                  {card.pt&&<div style={{fontSize:9,fontWeight:700,color:'#ccc',marginTop:3}}>{card.pt}</div>}
                 </div>
               )}
-              {/* P/T badge */}
-              {card.pt&&!err&&(
-                <div style={{position:'absolute',bottom:3,right:4,fontSize:8,fontWeight:700,color:'#fff',textShadow:'0 1px 3px rgba(0,0,0,1)',background:'rgba(0,0,0,.4)',borderRadius:3,padding:'0 3px'}}>{card.pt}</div>
-              )}
-              {/* Counter badge */}
               {(card.counters||0)>0&&(
-                <div style={{position:'absolute',top:-5,left:-5,width:18,height:18,borderRadius:'50%',background:'#2563eb',border:'2px solid #0a0a0a',fontSize:8,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,zIndex:5}}>
+                <div style={{position:'absolute',top:-5,left:-5,width:18,height:18,borderRadius:'50%',background:'#2563eb',border:'2px solid #141414',fontSize:8,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,zIndex:5}}>
                   {card.counters}
                 </div>
               )}
-              {/* Token badge */}
-              {card.isToken&&(
-                <div style={{position:'absolute',top:2,right:2,fontSize:7,padding:'1px 4px',borderRadius:3,background:'rgba(124,58,237,.7)',color:'#e0e0e0'}}>TOKEN</div>
-              )}
-              {/* Attacking indicator */}
-              {card.attacking&&(
-                <div style={{position:'absolute',top:-14,left:'50%',transform:'translateX(-50%)',fontSize:11,color:'#ef4444',filter:'drop-shadow(0 0 4px rgba(239,68,68,.8))'}}>⚔</div>
-              )}
+              {card.pt&&!err&&<div style={{position:'absolute',bottom:3,right:4,fontSize:8,fontWeight:700,color:'#fff',textShadow:'0 1px 4px rgba(0,0,0,1)',background:'rgba(0,0,0,.45)',borderRadius:3,padding:'0 3px'}}>{card.pt}</div>}
+              {card.isToken&&<div style={{position:'absolute',top:2,right:2,fontSize:6,padding:'1px 3px',borderRadius:3,background:'rgba(124,58,237,.7)',color:'#e0e0e0'}}>TOKEN</div>}
+              {card.attacking&&<div style={{position:'absolute',top:-13,left:'50%',transform:'translateX(-50%)',fontSize:10,color:'#ef4444',filter:'drop-shadow(0 0 4px rgba(239,68,68,.8))'}}>⚔</div>}
             </div>
           )
         })}
       </div>
 
-      {/* ── BOTTOM BAR (Moxfield style) ── */}
+      {/* ── BOTTOM BAR ── */}
       <div style={{background:'#111',borderTop:'1px solid #333',flexShrink:0}}>
-
         {/* HAND */}
         <div style={{display:'flex',alignItems:'flex-end',gap:5,padding:'8px 10px 6px',overflowX:'auto',overflowY:'visible',minHeight:148}}>
           {hand.map(card=>{
@@ -597,41 +765,59 @@ export default function SoloBoard({ onBack }) {
             return (
               <div key={card.id}
                 onMouseDown={e=>handDown(e,card)}
+                onMouseEnter={()=>setHovered(card.id)}
+                onMouseLeave={()=>setHovered(null)}
                 onContextMenu={e=>{e.preventDefault();setCtx({x:e.clientX,y:e.clientY,card,src:'hand'})}}
-                style={{flexShrink:0,width:92,height:128,borderRadius:7,border:'1.5px solid #444',background:'#0d1a0d',cursor:'grab',overflow:'hidden',position:'relative',transition:'transform .12s,border-color .1s,box-shadow .1s',boxShadow:'0 3px 10px rgba(0,0,0,.7)'}}
-                onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-12px)';e.currentTarget.style.borderColor='#a78bfa';e.currentTarget.style.boxShadow='0 10px 24px rgba(0,0,0,.9),0 0 0 1px rgba(167,139,250,.4)'}}
-                onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.borderColor='#444';e.currentTarget.style.boxShadow='0 3px 10px rgba(0,0,0,.7)'}}>
+                style={{flexShrink:0,width:92,height:128,borderRadius:7,border:'1.5px solid #3a3a3a',background:'#0d1a0d',cursor:'grab',overflow:'hidden',position:'relative',transition:'transform .12s,border-color .1s,box-shadow .1s',boxShadow:'0 3px 10px rgba(0,0,0,.7)'}}
+                onMouseEnter2={e=>{e.currentTarget.style.transform='translateY(-12px)';e.currentTarget.style.borderColor='#a78bfa';e.currentTarget.style.boxShadow='0 12px 28px rgba(0,0,0,.9),0 0 0 1px rgba(167,139,250,.4)'}}
+                onMouseLeave2={e=>{e.currentTarget.style.transform='';e.currentTarget.style.borderColor='#3a3a3a';e.currentTarget.style.boxShadow='0 3px 10px rgba(0,0,0,.7)'}}>
                 {!err?(
                   <img src={SF(card.name)} alt={card.name} draggable={false}
                     style={{width:'100%',height:'100%',objectFit:'cover',display:'block',pointerEvents:'none'}}
                     onError={()=>setImgErr(p=>({...p,[card.id+'h']:true}))}/>
                 ):(
                   <div style={{width:'100%',height:'100%',background:'#1a1a2a',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:6}}>
-                    <div style={{fontSize:9,color:'#aaa',textAlign:'center',lineHeight:1.4}}>{card.name}</div>
+                    <div style={{fontSize:8,color:'#aaa',textAlign:'center',lineHeight:1.4}}>{card.name}</div>
                   </div>
                 )}
               </div>
             )
           })}
-          {hand.length===0&&<div style={{fontSize:11,color:'#2a2a2a',padding:'0 8px',alignSelf:'center'}}>Hand is empty</div>}
+          {hand.length===0&&<div style={{fontSize:11,color:'#2a2a2a',padding:'0 8px',alignSelf:'center'}}>Hand is empty — draw some cards</div>}
         </div>
 
-        {/* ZONE PILLS (bottom row — Moxfield style) */}
+        {/* ZONE PILLS */}
         <div style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px 6px',borderTop:'1px solid #222'}}>
-          <div onClick={()=>setPanel('hand-cnt')} style={zonePill}>Hand ({hand.length})</div>
-          <div onClick={()=>setPanel('lib')}      style={zonePill}>Library ({library.length})</div>
-          <div onClick={()=>setPanel('gy')}        style={{...zonePill,color:gy.length>0?'#aaa':'#555'}}>Graveyard ({gy.length})</div>
-          <div onClick={()=>setPanel('exile')}     style={{...zonePill,color:exileZ.length>0?'#aaa':'#555'}}>Exile ({exileZ.length})</div>
-          <div onClick={()=>setPanel('cmd')}       style={{...zonePill,color:cmdZ.length>0?'#a78bfa':'#555'}}>Command ({cmdZ.length})</div>
+          <div onClick={()=>setPanel('hand-view')} style={{...ZP,color:hand.length>0?'#aaa':'#555'}}>Hand ({hand.length})</div>
+          <div onClick={()=>setPanel('lib')}       style={ZP}>Library ({library.length})</div>
+          <div onClick={()=>setPanel('gy')}         style={{...ZP,color:gy.length>0?'#aaa':'#555'}}>Graveyard ({gy.length})</div>
+          <div onClick={()=>setPanel('exile')}      style={{...ZP,color:exileZ.length>0?'#aaa':'#555'}}>Exile ({exileZ.length})</div>
+          <div onClick={()=>setPanel('cmd')}        style={{...ZP,color:cmdZ.length>0?'#a78bfa':'#555'}}>Command ({cmdZ.length})</div>
         </div>
       </div>
+
+      {/* ── CARD HOVER PREVIEW (bottom-right) ── */}
+      {hoveredCard && <CardPreview card={hoveredCard} />}
+
+      {/* ── STACK TRACKER ── */}
+      {showStack&&(
+        <>
+          <div style={{position:'fixed',inset:0,zIndex:6999}} onClick={()=>setShowStack(false)}/>
+          <StackTracker
+            stack={stack} priority={priority} log={actLog}
+            onPush={pushStack} onPop={popStack}
+            onPass={passPriority} onClear={clearStack}
+            onClose={()=>setShowStack(false)}
+          />
+        </>
+      )}
 
       {/* ── CONTEXT MENU ── */}
       {ctx&&(
         <>
           <div style={{position:'fixed',inset:0,zIndex:9998}} onClick={()=>setCtx(null)}/>
-          <div style={{position:'fixed',left:Math.min(ctx.x,window.innerWidth-190),top:Math.min(ctx.y,window.innerHeight-380),background:'#1a1a1a',border:'1px solid #333',borderRadius:8,padding:4,zIndex:9999,minWidth:185,boxShadow:'0 8px 32px rgba(0,0,0,.9)'}}>
-            <div style={{fontSize:9,color:'#555',padding:'4px 10px',textTransform:'uppercase',letterSpacing:'.07em',borderBottom:'1px solid #222',marginBottom:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{ctx.card.name}</div>
+          <div style={{position:'fixed',left:Math.min(ctx.x,window.innerWidth-195),top:Math.min(ctx.y,window.innerHeight-420),background:'#1a1a1a',border:'1px solid #333',borderRadius:8,padding:4,zIndex:9999,minWidth:190,boxShadow:'0 8px 32px rgba(0,0,0,.9)'}}>
+            <div style={{fontSize:9,color:'#555',padding:'4px 10px',textTransform:'uppercase',letterSpacing:'.07em',borderBottom:'1px solid #222',marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ctx.card.name}</div>
             {ctx.src==='bf'&&<>
               <CM onClick={()=>doCtx('tap')}>↻ Tap / Untap</CM>
               <CM onClick={()=>doCtx('atk')}>⚔ Declare attacker</CM>
@@ -640,11 +826,12 @@ export default function SoloBoard({ onBack }) {
               <Sep/>
               <CM onClick={()=>doCtx('+ctr')}>＋ Add +1/+1 counter</CM>
               <CM onClick={()=>doCtx('-ctr')}>－ Remove counter</CM>
-              <CM onClick={()=>doCtx('dbl')}>＋＋ Add 2 counters</CM>
-              <Sep/>
+              <CM onClick={()=>doCtx('+2ctr')}>＋＋ Add 2 counters</CM>
               <CM onClick={()=>doCtx('copy')}>⎘ Copy / Create token</CM>
+              <Sep/>
+              <CM onClick={()=>doCtx('stack')}>⚡ Add to stack</CM>
               <CM onClick={()=>doCtx('hand')}>✋ Return to hand</CM>
-              <CM onClick={()=>doCtx('top')}>📚 Put on top of library</CM>
+              <CM onClick={()=>doCtx('top')}>📚 Top of library</CM>
               <CM onClick={()=>doCtx('cmd')}>⬡ Command zone</CM>
             </>}
             <Sep/>
@@ -655,117 +842,108 @@ export default function SoloBoard({ onBack }) {
         </>
       )}
 
-      {/* ── PANELS (slide in from right) ── */}
-      {panel&&panel!=='token'&&(
+      {/* ── SLIDE-IN PANELS ── */}
+      {panel&&!['tokens'].includes(panel)&&(
         <>
           <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',zIndex:800}} onClick={()=>setPanel(null)}/>
-          <div style={{position:'fixed',right:0,top:0,bottom:0,width:340,background:'#111',borderLeft:'1px solid #333',display:'flex',flexDirection:'column',zIndex:801,animation:'sIn .2s ease'}}>
+          <div style={{position:'fixed',right:0,top:0,bottom:0,width:360,background:'#111',borderLeft:'1px solid #333',display:'flex',flexDirection:'column',zIndex:801,animation:'sIn .2s ease'}}>
             <style>{`@keyframes sIn{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
 
             {/* PANEL HEADER */}
             <div style={{display:'flex',alignItems:'center',padding:'12px 16px',borderBottom:'1px solid #222',flexShrink:0}}>
               <span style={{fontSize:14,fontWeight:600,flex:1,color:'#e0e0e0'}}>
-                {panel==='gy'?`Graveyard (${gy.length})`:panel==='exile'?`Exile (${exileZ.length})`:panel==='cmd'?`Command Zone (${cmdZ.length})`:panel==='lib'?`Library (${library.length})`:panel==='import'?'Import Deck':panel==='topN'?'Top of Library':'Zone'}
+                {panel==='hand-view'?`Hand (${hand.length})`:
+                 panel==='gy'?`Graveyard (${gy.length})`:
+                 panel==='exile'?`Exile (${exileZ.length})`:
+                 panel==='cmd'?`Command Zone (${cmdZ.length})`:
+                 panel==='lib'?`Library (${library.length})`:
+                 panel==='topN'?'Top of Library':
+                 panel==='import'?'Import Deck':'Zone'}
               </span>
               <button onClick={()=>setPanel(null)} style={{background:'none',border:'none',color:'#555',fontSize:18,cursor:'pointer'}}>✕</button>
             </div>
 
-            {/* ZONE TABS */}
+            {/* ZONE TABS for GY/Exile/Cmd */}
             {['gy','exile','cmd'].includes(panel)&&(
               <div style={{display:'flex',borderBottom:'1px solid #222',flexShrink:0}}>
                 {[{k:'gy',l:'Graveyard'},{k:'exile',l:'Exile'},{k:'cmd',l:'Command'}].map(({k,l})=>(
-                  <div key={k} onClick={()=>setPanel(k)}
-                    style={{flex:1,padding:'8px 0',textAlign:'center',fontSize:11,cursor:'pointer',color:panel===k?'#a78bfa':'#555',borderBottom:panel===k?'2px solid #a78bfa':'2px solid transparent',transition:'color .1s'}}>
+                  <div key={k} onClick={()=>setPanel(k)} style={{flex:1,padding:'7px 0',textAlign:'center',fontSize:11,cursor:'pointer',color:panel===k?'#a78bfa':'#555',borderBottom:panel===k?'2px solid #a78bfa':'2px solid transparent'}}>
                     {l}
                   </div>
                 ))}
               </div>
             )}
 
-            {/* PANEL CONTENT */}
+            {/* CONTENT */}
             <div style={{flex:1,overflowY:'auto',padding:'8px 12px'}}>
+
+              {/* HAND VIEW */}
+              {panel==='hand-view'&&(
+                <HandPanel
+                  hand={hand}
+                  onClose={()=>setPanel(null)}
+                  onReturnToBF={(handId)=>{
+                    const c=hand.find(x=>x.id===handId)
+                    if(c){setHand(h=>h.filter(x=>x.id!==handId));setBF(b=>[...b,{...c,id:'bf-'+Date.now(),x:80,y:80,tapped:false,attacking:false,blocking:false,targeted:false,counters:0}]);t(c.name+' → BF');log(c.name+' played from hand panel')}
+                  }}
+                  onDiscard={(handId,zone)=>{toZone(handId,'hand',zone);t('Card → '+zone)}}
+                />
+              )}
 
               {/* IMPORT */}
               {panel==='import'&&(
                 <div style={{display:'flex',flexDirection:'column',gap:10}}>
-                  <div style={{fontSize:11,color:'#555',lineHeight:1.5}}>Paste your deck list below. Format: <code style={{color:'#888'}}>1 Card Name</code> per line. Moxfield, Archidekt, MTGO export all work.</div>
-                  <textarea
-                    value={importTxt}
-                    onChange={e=>setImportTxt(e.target.value)}
-                    placeholder="1 Sol Ring&#10;1 Command Tower&#10;10 Forest&#10;..."
-                    style={{width:'100%',height:300,background:'#0d0d0d',border:'1px solid #333',borderRadius:6,color:'#ccc',fontSize:11,padding:10,resize:'vertical',fontFamily:'monospace',outline:'none',lineHeight:1.5}}
-                  />
+                  <div style={{fontSize:11,color:'#555',lineHeight:1.6}}>Paste your deck list. Format: <code style={{color:'#888',background:'#0d0d0d',padding:'1px 4px',borderRadius:3}}>1 Card Name</code> per line.</div>
+                  <textarea value={importTxt} onChange={e=>setImportTxt(e.target.value)}
+                    placeholder={'1 Sol Ring\n1 Command Tower\n10 Forest\n...'}
+                    style={{width:'100%',height:280,background:'#0d0d0d',border:'1px solid #333',borderRadius:6,color:'#ccc',fontSize:11,padding:10,resize:'vertical',fontFamily:'monospace',outline:'none',lineHeight:1.5}}/>
                   <button onClick={importDeck} style={{padding:'10px',borderRadius:6,background:'#2563eb',border:'none',color:'#fff',fontSize:13,cursor:'pointer',fontWeight:600}}>
                     Import & Shuffle
                   </button>
-                  <div style={{fontSize:10,color:'#333',textAlign:'center'}}>Will replace current deck and deal 7 cards</div>
+                  <div style={{fontSize:10,color:'#333',textAlign:'center'}}>Replaces current deck · deals 7 cards automatically</div>
                 </div>
               )}
 
               {/* LIBRARY */}
               {panel==='lib'&&(
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:8}}>
-                    <button onClick={()=>{drawOne();setPanel(null)}}     style={libBtn}>Draw 1</button>
-                    <button onClick={()=>{drawN(3);setPanel(null)}}       style={libBtn}>Draw 3</button>
-                    <button onClick={()=>{drawN(7,true);setPanel(null)}}  style={libBtn}>Draw 7</button>
-                    <button onClick={()=>{shuffleLib();setPanel(null)}}   style={libBtn}>Shuffle</button>
-                    <button onClick={()=>lookTopN(1)}                     style={libBtn}>Look at top</button>
-                    <button onClick={()=>lookTopN(3)}                     style={libBtn}>Look at top 3</button>
-                    <button onClick={()=>lookTopN(7)}                     style={libBtn}>Scry 7</button>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5,marginBottom:8}}>
+                    {[['Draw 1',()=>{drawN(1);setPanel(null)}],['Draw 3',()=>{drawN(3);setPanel(null)}],['Draw 7',()=>{drawN(7,true);setPanel(null)}],['Shuffle',()=>{shuffleLib();setPanel(null)}],['Top card',()=>lookTopN(1)],['Top 3',()=>lookTopN(3)]].map(([l,fn])=>(
+                      <button key={l} onClick={fn} style={{padding:'8px',borderRadius:5,border:'1px solid #222',background:'#1a1a1a',color:'#888',fontSize:11,cursor:'pointer'}}>{l}</button>
+                    ))}
                   </div>
-                  <div style={{fontSize:10,color:'#333',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:4}}>Library contents ({library.length} cards)</div>
+                  <div style={{fontSize:10,color:'#333',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:4}}>Contents ({library.length})</div>
                   {library.map((c,i)=>(
-                    <ZoneCard key={c.id} card={c} onHand={()=>retrieve_lib(i,'hand')} onBF={()=>retrieve_lib(i,'bf')} />
+                    <ZoneCard key={c.id} card={c} onHand={()=>retrieveLib(i,'hand')} onBF={()=>retrieveLib(i,'bf')} />
                   ))}
                 </div>
               )}
 
-              {/* TOP N CARDS */}
+              {/* TOP N */}
               {panel==='topN'&&(
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                  <div style={{fontSize:11,color:'#555',marginBottom:4}}>Top {topCards.length} card{topCards.length!==1?'s':''} of your library</div>
+                  <div style={{fontSize:11,color:'#555',marginBottom:4}}>Top {topCards.length} card{topCards.length!==1?'s':''}</div>
                   {topCards.map((c,i)=>(
-                    <div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 8px',borderRadius:6,background:'#1a1a1a'}}>
+                    <div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px',borderRadius:6,background:'#1a1a1a',border:'1px solid #222'}}>
                       <div style={{width:44,height:62,borderRadius:4,overflow:'hidden',flexShrink:0,border:'1px solid #333'}}>
                         <img src={SF(c.name)} alt={c.name} style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>
                       </div>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:11,color:'#e0e0e0'}}>{c.name}</div>
-                      </div>
+                      <div style={{flex:1}}><div style={{fontSize:11,color:'#e0e0e0'}}>{c.name}</div></div>
                       <div style={{display:'flex',flexDirection:'column',gap:3}}>
                         <button onClick={()=>{drawN(1);setTopCards(tc=>tc.filter((_,j)=>j!==i));if(topCards.length<=1)setPanel(null)}} style={{padding:'3px 7px',borderRadius:4,border:'1px solid #2a2050',background:'#0d0a1e',color:'#a78bfa',fontSize:9,cursor:'pointer'}}>Draw</button>
-                        <button onClick={()=>bottomCard(i)} style={{padding:'3px 7px',borderRadius:4,border:'1px solid #222',background:'#111',color:'#555',fontSize:9,cursor:'pointer'}}>Bottom</button>
+                        <button onClick={()=>{setLibrary(l=>{const card=l[i];return[...l.filter((_,j)=>j!==i),card]});setTopCards(tc=>tc.filter((_,j)=>j!==i));t('Card → bottom')}} style={{padding:'3px 7px',borderRadius:4,border:'1px solid #222',background:'#111',color:'#555',fontSize:9,cursor:'pointer'}}>Bottom</button>
                       </div>
                     </div>
                   ))}
-                  <button onClick={()=>{shuffleLib();setPanel(null)}} style={{...libBtn,marginTop:4}}>Shuffle after looking</button>
-                </div>
-              )}
-
-              {/* TOKEN PANEL */}
-              {panel==='token'&&(
-                <div style={{display:'flex',flexDirection:'column',gap:6}}>
-                  <div style={{fontSize:11,color:'#555',marginBottom:4}}>Quick tokens</div>
-                  {[
-                    ['Beast Token','3/3'],['Saproling','1/1'],['Goblin','1/1'],
-                    ['Soldier','1/1'],['Zombie','2/2'],['Dragon','5/5 Flying'],
-                    ['Elephant','3/3'],['Treasure','Artifact'],['Clue','Artifact'],
-                    ['Food','Artifact'],['Plant','0/1'],['Spider','1/2 Reach'],
-                  ].map(([name,pt])=>(
-                    <button key={name} onClick={()=>{addToken(name,pt);setPanel(null)}}
-                      style={{padding:'8px 10px',borderRadius:5,border:'1px solid #222',background:'#1a1a1a',color:'#ccc',fontSize:11,cursor:'pointer',textAlign:'left'}}>
-                      {name} <span style={{color:'#555',fontSize:10}}>({pt})</span>
-                    </button>
-                  ))}
+                  <button onClick={()=>{shuffleLib();setPanel(null)}} style={{padding:'8px',borderRadius:5,border:'1px solid #222',background:'#1a1a1a',color:'#888',fontSize:11,cursor:'pointer',marginTop:4}}>Shuffle after looking</button>
                 </div>
               )}
 
               {/* GY / EXILE / CMD */}
               {['gy','exile','cmd'].includes(panel)&&(
-                panelArr.length===0?(
+                panelCards.length===0?(
                   <div style={{textAlign:'center',padding:30,fontSize:12,color:'#222'}}>Nothing here yet</div>
-                ):panelArr.map((card,i)=>(
+                ):panelCards.map((card,i)=>(
                   <ZoneCard key={card.id||i} card={card}
                     onHand={()=>retrieve(panel,i,'hand')}
                     onBF={()=>retrieve(panel,i,'bf')}
@@ -778,7 +956,7 @@ export default function SoloBoard({ onBack }) {
         </>
       )}
 
-      {/* TOKEN PANEL (triggered from top button) */}
+      {/* ── TOKEN PANEL ── */}
       {panel==='tokens'&&(
         <>
           <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',zIndex:800}} onClick={()=>setPanel(null)}/>
@@ -787,11 +965,7 @@ export default function SoloBoard({ onBack }) {
               <span style={{fontSize:14,fontWeight:600,flex:1,color:'#e0e0e0'}}>Add Token</span>
               <button onClick={()=>setPanel(null)} style={{background:'none',border:'none',color:'#555',fontSize:18,cursor:'pointer'}}>✕</button>
             </div>
-            <TokenPanel
-              deckTokens={deckTokens}
-              onAdd={(tok,qty)=>{addToken(tok,qty);}}
-              onClose={()=>setPanel(null)}
-            />
+            <TokenPanel deckTokens={deckTokens} onAdd={(tok,qty)=>addToken(tok,qty)} onClose={()=>setPanel(null)}/>
           </div>
         </>
       )}
@@ -800,41 +974,26 @@ export default function SoloBoard({ onBack }) {
       {toast&&<div style={{position:'fixed',bottom:172,left:'50%',transform:'translateX(-50%)',background:'#1a1a1a',border:'1px solid #333',borderRadius:20,padding:'6px 18px',fontSize:11,color:'#e0e0e0',zIndex:9000,pointerEvents:'none',whiteSpace:'nowrap',boxShadow:'0 4px 16px rgba(0,0,0,.8)'}}>{toast}</div>}
     </div>
   )
-
-  function retrieve_lib(idx, dest) {
-    const card = library[idx]
-    if (!card) return
-    setLibrary(l => l.filter((_,i)=>i!==idx))
-    if (dest==='hand') setHand(h=>[...h,{...card,id:'h-'+Date.now()}])
-    if (dest==='bf')   setBF(b=>[...b,{...card,id:'bf-'+Date.now(),x:60,y:60,tapped:false,attacking:false,blocking:false,targeted:false,counters:0}])
-    t(card.name + (dest==='hand'?' → hand':' → battlefield'))
-  }
 }
 
-// ── SUB-COMPONENTS ─────────────────────────────────────────
+// ── SHARED SUB-COMPONENTS ────────────────────────────────────
 function ZoneCard({ card, onHand, onBF, onLib }) {
   const [err, setErr] = useState(false)
   return (
-    <div style={{display:'flex',alignItems:'center',gap:8,padding:'6px 8px',borderRadius:6,marginBottom:2,cursor:'default'}}
-      onMouseEnter={e=>e.currentTarget.style.background='#1a1a1a'}
-      onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+    <div style={{display:'flex',alignItems:'center',gap:8,padding:'6px 8px',borderRadius:6,marginBottom:3,cursor:'default',border:'1px solid transparent'}}
+      onMouseEnter={e=>{e.currentTarget.style.background='#1a1a1a';e.currentTarget.style.borderColor='#222'}}
+      onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.borderColor='transparent'}}>
       <div style={{width:40,height:56,borderRadius:4,overflow:'hidden',flexShrink:0,border:'1px solid #333',background:'#0d1a0d'}}>
-        {!err?(
-          <img src={SF(card.name)} alt={card.name} draggable={false}
-            style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}
-            onError={()=>setErr(true)}/>
-        ):(
-          <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:7,color:'#555',textAlign:'center',padding:2}}>{card.name}</div>
-        )}
+        {!err?(<img src={SF(card.name)} alt={card.name} style={{width:'100%',height:'100%',objectFit:'cover'}} onError={()=>setErr(true)}/>):(<div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:7,color:'#555',textAlign:'center',padding:2}}>{card.name}</div>)}
       </div>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:11,color:'#ccc',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{card.name}</div>
         {card.pt&&<div style={{fontSize:9,color:'#555',marginTop:1}}>{card.pt}</div>}
       </div>
-      <div style={{display:'flex',flexDirection:'column',gap:3}}>
-        <button onClick={onHand} style={{padding:'3px 8px',borderRadius:4,border:'1px solid #2a2050',background:'#0d0a1e',color:'#a78bfa',fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>→ Hand</button>
-        {onBF&&<button onClick={onBF} style={{padding:'3px 8px',borderRadius:4,border:'1px solid #222',background:'#111',color:'#666',fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>→ BF</button>}
-        {onLib&&<button onClick={onLib} style={{padding:'3px 8px',borderRadius:4,border:'1px solid #222',background:'#111',color:'#666',fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>→ Lib</button>}
+      <div style={{display:'flex',flexDirection:'column',gap:3,flexShrink:0}}>
+        {onHand&&<button onClick={onHand} style={{padding:'3px 7px',borderRadius:4,border:'1px solid #2a2050',background:'#0d0a1e',color:'#a78bfa',fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>→ Hand</button>}
+        {onBF&&<button onClick={onBF} style={{padding:'3px 7px',borderRadius:4,border:'1px solid #222',background:'#111',color:'#555',fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>→ BF</button>}
+        {onLib&&<button onClick={onLib} style={{padding:'3px 7px',borderRadius:4,border:'1px solid #222',background:'#111',color:'#444',fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>→ Lib</button>}
       </div>
     </div>
   )
@@ -843,17 +1002,16 @@ function ZoneCard({ card, onHand, onBF, onLib }) {
 function CM({onClick,children,danger}) {
   return (
     <div onClick={onClick}
-      style={{padding:'7px 12px',fontSize:11,color:danger?'#777':'#888',cursor:'pointer',borderRadius:5,whiteSpace:'nowrap'}}
+      style={{padding:'7px 12px',fontSize:11,color:danger?'#777':'#888',cursor:'pointer',borderRadius:5}}
       onMouseEnter={e=>{e.currentTarget.style.background=danger?'#1a0808':'#222';e.currentTarget.style.color=danger?'#ef4444':'#e0e0e0'}}
       onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color=danger?'#777':'#888'}}>
       {children}
     </div>
   )
 }
+function Sep(){return <div style={{borderTop:'1px solid #222',margin:'3px 0'}}/>}
 
-function Sep() { return <div style={{borderTop:'1px solid #222',margin:'3px 0'}}/> }
-
-const topBtn = {padding:'3px 10px',borderRadius:4,border:'1px solid #333',background:'#1a1a1a',color:'#888',fontSize:12,cursor:'pointer'}
-const actionBtn = {padding:'5px 12px',borderRadius:4,border:'1px solid #333',background:'#1a1a1a',color:'#ccc',fontSize:11,cursor:'pointer',whiteSpace:'nowrap'}
-const zonePill = {padding:'4px 10px',borderRadius:20,border:'1px solid #222',background:'#1a1a1a',color:'#555',fontSize:10,cursor:'pointer',whiteSpace:'nowrap',transition:'color .1s'}
-const libBtn = {padding:'8px',borderRadius:5,border:'1px solid #222',background:'#1a1a1a',color:'#888',fontSize:11,cursor:'pointer'}
+// Style constants
+const TB={padding:'3px 10px',borderRadius:4,border:'1px solid #333',background:'#1a1a1a',color:'#888',fontSize:12,cursor:'pointer'}
+const AB={padding:'5px 10px',borderRadius:4,border:'1px solid #333',background:'#1a1a1a',color:'#ccc',fontSize:11,cursor:'pointer',whiteSpace:'nowrap'}
+const ZP={padding:'4px 10px',borderRadius:20,border:'1px solid #222',background:'#1a1a1a',color:'#555',fontSize:10,cursor:'pointer',whiteSpace:'nowrap',transition:'color .1s'}
