@@ -194,9 +194,9 @@ export default function GameBoard({ config, onBack }) {
                   owner={player}
                   cards={gs.cards[player] || []}
                   isFlipped={cfg.flip}
-                  onCardDrop={handleCardDrop}
+                  onCardMove={handleCardDrop}
                   onCardClick={handleCardClick}
-                  onCardContextMenu={(e, card, owner) => openCtx(e, card, owner)}
+                  onCardContext={(e, card, owner) => openCtx(e, card, owner)}
                   onBFDrop={handleBFDrop}
                 />
 
