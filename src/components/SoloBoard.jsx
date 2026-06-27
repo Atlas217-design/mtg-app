@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import TokenPanel from './TokenPanel.jsx'
 import CardModify from './CardModify.jsx'
+import CommanderZone from './CommanderZone.jsx'
 import { getTokensForDeck } from '../utils/tokenRegistry.js'
 
 const SF = (name, ver='normal') =>
@@ -343,6 +344,8 @@ export default function SoloBoard({ onBack }) {
   const [gy,       setGY]       = useState([])
   const [exileZ,   setExileZ]   = useState([])
   const [cmdZ,     setCmdZ]     = useState([])
+  const [commander, setCommander] = useState(null)
+  // commander shape: { name:string, castCount:number, inZone:boolean }
 
   // ── GAME ──────────────────────────────────────────────────
   const [life,     setLife]     = useState(40)
@@ -481,6 +484,16 @@ export default function SoloBoard({ onBack }) {
       t(`${card.name} token removed`)
       return
     }
+    // If this is the commander going to cmd zone, update commander state
+    if(card.isCommander || (commander && card.name === commander.name)) {
+      if(zone === 'cmd') {
+        setCommander(c => c ? { ...c, inZone: true } : c)
+        log(`${card.name} returned to command zone`)
+        t(`${card.name} → command zone`)
+        setBF(b => b.filter(c => c.id !== id))
+        return
+      }
+    }
     const e={...card,id:'z-'+Date.now()+Math.random()}
     if(zone==='gy')    {setGY(z=>[...z,e])}
     if(zone==='exile') {setExileZ(z=>[...z,e])}
@@ -536,6 +549,57 @@ export default function SoloBoard({ onBack }) {
     log(`Modified ${updates.name || id}`)
   }
 
+  // ── COMMANDER ──────────────────────────────────────────────
+  function setCommanderCard(name) {
+    setCommander({ name, castCount: 0, inZone: true })
+    log(`Commander set: ${name}`)
+    t(`${name} set as commander`)
+  }
+
+  function castCommander() {
+    if (!commander) return
+    // Move from command zone to battlefield
+    const newCard = {
+      id: 'cmd-bf-'+Date.now(),
+      name: commander.name,
+      type: 'Creature',
+      col: 'cg', art: '⬡', pt: '',
+      x: 200, y: 60,
+      tapped: false, attacking: false, blocking: false, targeted: false, counters: 0,
+      isCommander: true,
+    }
+    setBF(b => [...b, newCard])
+    setCommander(c => ({ ...c, castCount: c.castCount + 1, inZone: false }))
+    const tax = commander.castCount * 2
+    t(`${commander.name} cast${tax > 0 ? ` (+${tax} tax)` : ''}`)
+    log(`Commander cast: ${commander.name}, tax was ${tax}`)
+  }
+
+  function returnCommanderToZone() {
+    // Remove from battlefield, mark as back in zone
+    setBF(b => b.filter(c => !c.isCommander))
+    setCommander(c => c ? { ...c, inZone: true } : c)
+    t(`${commander?.name} returned to command zone`)
+    log(`Commander returned to command zone`)
+  }
+
+  function commanderToBF() {
+    // Put directly onto battlefield without casting (cheat effects)
+    const newCard = {
+      id: 'cmd-bf-'+Date.now(),
+      name: commander.name,
+      type: 'Creature',
+      col: 'cg', art: '⬡', pt: '',
+      x: 200, y: 60,
+      tapped: false, attacking: false, blocking: false, targeted: false, counters: 0,
+      isCommander: true,
+    }
+    setBF(b => [...b, newCard])
+    setCommander(c => ({ ...c, inZone: false }))
+    t(`${commander.name} put onto battlefield`)
+    log(`Commander put onto BF directly (no cast)`)
+  }
+
   function pushStack(item){ setStack(s=>[...s,item]); log(`Stack: ${item.name} added`) }
   function popStack(){
     setStack(s=>{
@@ -581,7 +645,22 @@ export default function SoloBoard({ onBack }) {
       case 'gy':      toZone(card.id,src,'gy'); break
       case 'exile':   toZone(card.id,src,'exile'); break
       case 'cmd':     toZone(card.id,src,'cmd'); break
-      case 'destroy': if(card.isToken){setBF(b=>b.filter(c=>c.id!==card.id));log(`${card.name} token ceased to exist`);t('Token removed')}else{toZone(card.id,src,'gy');log(`${card.name} destroyed`)}; break
+      case 'destroy':
+        if(card.isToken){
+          setBF(b=>b.filter(c=>c.id!==card.id))
+          log(`${card.name} token ceased to exist`)
+          t('Token removed')
+        } else if(card.isCommander||(commander&&card.name===commander.name)) {
+          // Commander goes to command zone when destroyed
+          setBF(b=>b.filter(c=>c.id!==card.id))
+          setCommander(c=>c?{...c,inZone:true}:c)
+          log(`${card.name} (commander) → command zone`)
+          t(`${card.name} went to command zone`)
+        } else {
+          toZone(card.id,src,'gy')
+          log(`${card.name} destroyed`)
+        }
+        break
     }
   }
 
@@ -843,8 +922,28 @@ export default function SoloBoard({ onBack }) {
         </div>
       </div>
 
+      {/* ── COMMANDER ZONE — always visible bottom-right of BF ── */}
+      <CommanderZone
+        commander={commander}
+        onSetCommander={setCommanderCard}
+        onCast={castCommander}
+        onReturnToZone={returnCommanderToZone}
+        onSendToBF={commanderToBF}
+        onContextMenu={(e) => {
+          if (!commander) return
+          e.preventDefault()
+          const fakeCard = { id:'commander', name:commander.name, isCommander:true, type:'Creature', col:'cg', art:'⬡', pt:'' }
+          setCtx({ x:e.clientX, y:e.clientY, card:fakeCard, src:'cmd' })
+        }}
+      />
+
       {/* ── CARD HOVER PREVIEW (bottom-right) ── */}
-      {hoveredCard && <CardPreview card={hoveredCard} />}
+      {hoveredCard && !commander && <CardPreview card={hoveredCard} />}
+      {hoveredCard && commander && (
+        <div style={{position:'fixed',bottom:16,right:150,zIndex:8000,pointerEvents:'none'}}>
+          <CardPreview card={hoveredCard} />
+        </div>
+      )}
 
       {/* ── STACK TRACKER ── */}
       {showStack&&(
@@ -881,6 +980,10 @@ export default function SoloBoard({ onBack }) {
               <CM onClick={()=>doCtx('hand')}>✋ Return to hand</CM>
               <CM onClick={()=>doCtx('top')}>📚 Top of library</CM>
               <CM onClick={()=>doCtx('cmd')}>⬡ Command zone</CM>
+              {ctx?.card?.isCommander && <>
+                <Sep/>
+                <CM onClick={()=>{returnCommanderToZone();setCtx(null)}}>⬡ Return to CMD zone</CM>
+              </>}
             </>}
             <Sep/>
             <CM onClick={()=>doCtx('gy')}>☠ To graveyard</CM>
