@@ -1,86 +1,86 @@
-import React, { useRef } from 'react'
+import React, { useState } from 'react'
 
-const COL_MAP = {
+const COL_BG = {
   cg:'#0d1a0d', cu:'#0d1220', cr:'#180d0d', cb:'#100d18',
   cw:'#1a1a0d', ca:'#161616', cforest:'#0d1a0d', cisland:'#0d1220',
   cmtn:'#180d0d', cswamp:'#100d18', cplains:'#1a1a0d',
 }
-const BORDER_MAP = {
+const COL_BORDER = {
   cg:'#1e3a1e', cu:'#1a2a5a', cr:'#4a1a1a', cb:'#2a1a4a',
   cw:'#3a3a1a', ca:'#2a2a2a', cforest:'#1a3a1a', cisland:'#1a2a4a',
   cmtn:'#3a1a1a', cswamp:'#2a1a3a', cplains:'#2a2a1a',
 }
 
-export default function Card({
-  card, isLand, isMine,
-  onMouseDown, onClick, onContextMenu,
-  style = {},
-}) {
-  const w = isLand ? 42 : 62
-  const h = isLand ? 28 : 86
-  const bg    = COL_MAP[card.col]    || '#111'
-  const border= BORDER_MAP[card.col] || '#333'
+function scryfallImg(name) {
+  return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=normal`
+}
 
-  const baseStyle = {
-    position: 'absolute',
-    width: w,
-    height: h,
-    left: card.x,
-    top:  card.y,
-    borderRadius: 5,
-    border: `1.5px solid ${card.targeted ? '#60a5fa' : card.attacking ? '#ef4444' : card.selected ? '#a78bfa' : border}`,
-    background: bg,
-    cursor: 'grab',
-    overflow: 'hidden',
-    display: 'flex',
-    flexDirection: 'column',
-    transform: card.tapped ? 'rotate(15deg)' : 'none',
-    transformOrigin: 'center center',
-    boxShadow: card.selected
-      ? '0 0 0 2px rgba(167,139,250,.4), 0 4px 12px rgba(0,0,0,.6)'
-      : card.attacking
-      ? '0 0 0 2px rgba(239,68,68,.3)'
-      : card.targeted
-      ? '0 0 0 2px rgba(96,165,250,.3)'
-      : '0 2px 6px rgba(0,0,0,.4)',
-    transition: 'box-shadow .1s, border-color .1s',
-    zIndex: card.selected ? 100 : card.attacking ? 50 : 10,
-    userSelect: 'none',
-    ...style,
-  }
+export default function Card({ card, isLand, isDragging, onMouseDown, onContextMenu }) {
+  const [imgErr, setImgErr] = useState(false)
+
+  const w = isLand ? 60  : 90
+  const h = isLand ? 42  : 126
+
+  const borderColor = card.targeted  ? '#60a5fa'
+    : card.attacking ? '#ef4444'
+    : card.blocking  ? '#f59e0b'
+    : COL_BORDER[card.col] || '#333'
+
+  const boxShadow = card.targeted  ? '0 0 0 2px rgba(96,165,250,.4)'
+    : card.attacking ? '0 0 0 2px rgba(239,68,68,.4)'
+    : card.blocking  ? '0 0 0 2px rgba(245,158,11,.4)'
+    : '0 2px 6px rgba(0,0,0,.5)'
 
   return (
     <div
-      style={baseStyle}
+      style={{
+        position:  'absolute',
+        left:      card.x,
+        top:       card.y,
+        width:     w,
+        height:    h,
+        borderRadius: 5,
+        border:    `1.5px solid ${borderColor}`,
+        background: COL_BG[card.col] || '#111',
+        cursor:    'grab',
+        overflow:  'hidden',
+        transform: card.tapped ? 'rotate(15deg)' : 'none',
+        transformOrigin: 'center center',
+        boxShadow,
+        opacity:   isDragging ? 0.25 : 1,
+        zIndex:    card.attacking ? 50 : card.targeted ? 40 : 10,
+        transition: 'opacity .1s',
+        userSelect:'none',
+      }}
       onMouseDown={onMouseDown}
-      onClick={onClick}
       onContextMenu={onContextMenu}
     >
-      {/* ART AREA */}
-      <div style={{ flex: isLand ? 1 : '0 0 55%', display:'flex', alignItems:'center', justifyContent:'center', fontSize: isLand ? 11 : 20, background: bg }}>
-        {card.art}
-      </div>
-      {/* NAME BAR */}
-      {!isLand && (
-        <div style={{ padding:'1px 3px', background:'rgba(0,0,0,.6)', fontSize:6, color:'#ccc', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', flex:1, display:'flex', alignItems:'center' }}>
-          {card.name}
+      {/* CARD IMAGE */}
+      {!imgErr ? (
+        <img
+          src={scryfallImg(card.name)}
+          alt={card.name}
+          draggable={false}
+          style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', pointerEvents:'none' }}
+          onError={() => setImgErr(true)}
+        />
+      ) : (
+        <div style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column' }}>
+          <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', fontSize:isLand?12:22 }}>{card.art}</div>
+          {!isLand && <div style={{ padding:'1px 3px', background:'rgba(0,0,0,.6)', fontSize:6, color:'#ccc', textAlign:'center', whiteSpace:'nowrap', overflow:'hidden' }}>{card.name}</div>}
         </div>
       )}
-      {/* P/T */}
-      {card.pt && (
-        <div style={{ position:'absolute', bottom:2, right:3, fontSize:7, fontWeight:700, color:'#fff', textShadow:'0 0 3px #000' }}>
-          {card.pt}
-        </div>
-      )}
+
       {/* +1/+1 COUNTERS */}
-      {card.counters > 0 && (
-        <div style={{ position:'absolute', top:-5, left:-5, width:14, height:14, borderRadius:'50%', background:'#2563eb', border:'1.5px solid #0a0a0a', fontSize:7, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, zIndex:2 }}>
+      {(card.counters || 0) > 0 && (
+        <div style={{ position:'absolute', top:-5, left:-5, width:15, height:15, borderRadius:'50%', background:'#2563eb', border:'1.5px solid #0a0a0a', fontSize:7, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, zIndex:5 }}>
           {card.counters}
         </div>
       )}
-      {/* ATTACKING ARROW */}
+
+      {/* ATTACKING ICON */}
       {card.attacking && (
-        <div style={{ position:'absolute', top:-14, left:'50%', transform:'translateX(-50%)', fontSize:10, color:'#ef4444' }}>⚔</div>
+        <div style={{ position:'absolute', top:-12, left:'50%', transform:'translateX(-50%)', fontSize:10, color:'#ef4444', zIndex:5 }}>⚔</div>
       )}
     </div>
   )
