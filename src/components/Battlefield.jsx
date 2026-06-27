@@ -1,82 +1,122 @@
-import React, { useRef, useCallback } from 'react'
+import React, { useRef, useCallback, useState } from 'react'
 import Card from './Card.jsx'
 
 export default function Battlefield({
   owner, cards, isFlipped,
-  onCardDrop, onCardClick, onCardContextMenu,
-  onBFDrop,
-  style = {},
+  onCardMove,    // (id, owner, toOwner, x, y)
+  onCardClick,   // (card, owner)
+  onCardContext, // (e, card, owner)
+  onBFDrop,      // (card, fromOwner, dest, targetOwner, targetZone)
 }) {
-  const bfRef = useRef(null)
-  const dragging = useRef(null)
+  const bfRef   = useRef(null)
+  const dragRef = useRef(null)
+  const ghostRef = useRef(null)
+  const [dragId, setDragId] = useState(null)
 
   const handleMouseDown = useCallback((e, card) => {
     if (e.button !== 0) return
     e.preventDefault()
     e.stopPropagation()
 
-    const rect = bfRef.current.getBoundingClientRect()
-    dragging.current = {
+    const bfRect = bfRef.current.getBoundingClientRect()
+    // Offset within the card where user clicked
+    const cardEl = e.currentTarget
+    const cardRect = cardEl.getBoundingClientRect()
+    const offX = e.clientX - cardRect.left
+    const offY = e.clientY - cardRect.top
+
+    dragRef.current = {
       card,
+      owner,
+      offX,
+      offY,
       startX: e.clientX,
       startY: e.clientY,
-      origX:  card.x,
-      origY:  card.y,
-      moved:  false,
+      moved: false,
     }
 
-    const onMove = (me) => {
-      if (!dragging.current) return
-      const dx = me.clientX - dragging.current.startX
-      const dy = me.clientY - dragging.current.startY
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragging.current.moved = true
-      if (!dragging.current.moved) return
+    // Create floating ghost
+    const ghost = document.createElement('div')
+    const isLand = card.type === 'Land'
+    const w = isLand ? 60 : 90
+    const h = isLand ? 42 : 126
+    ghost.style.cssText = `
+      position:fixed; pointer-events:none; z-index:9999;
+      width:${w}px; height:${h}px; border-radius:5px;
+      border:2px solid #a78bfa; box-shadow:0 8px 24px rgba(0,0,0,.9);
+      background:#0d1a0d; display:flex; align-items:center; justify-content:center;
+      font-size:${isLand?14:24}px; opacity:.85; transform:rotate(3deg);
+      left:${e.clientX - offX}px; top:${e.clientY - offY}px;
+    `
+    ghost.textContent = card.art
+    document.body.appendChild(ghost)
+    ghostRef.current = ghost
+    setDragId(card.id)
 
-      // Compute new position relative to THIS battlefield
-      const bfRect = bfRef.current.getBoundingClientRect()
-      const newX = Math.max(0, me.clientX - bfRect.left - 18)
-      const newY = Math.max(0, me.clientY - bfRect.top  - 14)
+    function onMove(me) {
+      if (!dragRef.current) return
+      const dx = me.clientX - dragRef.current.startX
+      const dy = me.clientY - dragRef.current.startY
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragRef.current.moved = true
+      ghost.style.left = (me.clientX - offX) + 'px'
+      ghost.style.top  = (me.clientY - offY) + 'px'
 
-      onCardDrop(card.id, owner, owner, newX, newY, false) // live update
+      // Highlight valid drop targets
+      document.querySelectorAll('[data-bfowner],[data-pileowner]').forEach(el => {
+        el.style.outline = ''
+      })
+      const els = document.elementsFromPoint(me.clientX, me.clientY)
+      const targetBF   = els.find(el => el.dataset.bfowner)
+      const targetPile = els.find(el => el.dataset.pileowner)
+      if (targetBF)   targetBF.style.outline   = '2px solid #a78bfa'
+      if (targetPile) targetPile.style.outline = '2px solid #7c3aed'
     }
 
-    const onUp = (me) => {
+    function onUp(me) {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
-      if (!dragging.current) return
+      document.querySelectorAll('[data-bfowner],[data-pileowner]').forEach(el => el.style.outline = '')
+      ghost.remove()
+      ghostRef.current = null
+      setDragId(null)
 
-      if (!dragging.current.moved) {
-        // It was a click — handle tap
+      if (!dragRef.current) return
+      const { moved, offX: ox, offY: oy } = dragRef.current
+
+      if (!moved) {
+        // It was a click
         onCardClick && onCardClick(card, owner)
       } else {
-        // Check if dropped on a different zone
+        // Find drop target (hide ghost first so we hit-test underneath)
+        ghost.style.display = 'none'
         const els = document.elementsFromPoint(me.clientX, me.clientY)
-        const targetBF = els.find(el => el.dataset.bfowner && el.dataset.bfowner !== owner)
+        ghost.style.display = ''
+
+        // Walk up to find battlefield or pile
+        const targetBF   = els.find(el => el.dataset.bfowner)
         const targetPile = els.find(el => el.dataset.pileowner)
 
         if (targetPile) {
-          // Dropped on a pile
           onBFDrop && onBFDrop(card, owner, 'pile', targetPile.dataset.pileowner, targetPile.dataset.pilezone)
         } else if (targetBF) {
-          // Dropped on another player's battlefield (control effect)
-          const bfRect = targetBF.getBoundingClientRect()
-          const newX = Math.max(0, me.clientX - bfRect.left - 18)
-          const newY = Math.max(0, me.clientY - bfRect.top  - 14)
-          onCardDrop(card.id, owner, targetBF.dataset.bfowner, newX, newY, true)
-        } else {
-          // Dropped within own battlefield — position already updated live
-          const bfRect = bfRef.current.getBoundingClientRect()
-          const newX = Math.max(0, me.clientX - bfRect.left - 18)
-          const newY = Math.max(0, me.clientY - bfRect.top  - 14)
-          onCardDrop(card.id, owner, owner, newX, newY, false)
+          const toOwner = targetBF.dataset.bfowner
+          const rect    = targetBF.getBoundingClientRect()
+          // Calculate position relative to the target battlefield
+          let x = me.clientX - rect.left - ox
+          let y = me.clientY - rect.top  - oy
+          // Clamp within bounds
+          x = Math.max(0, Math.min(x, rect.width  - (card.type==='Land'?60:90) - 4))
+          y = Math.max(0, Math.min(y, rect.height - (card.type==='Land'?42:126) - 4))
+          onCardMove(card.id, owner, toOwner, x, y)
         }
+        // If dropped nowhere valid, card stays (position hasn't changed server-side)
       }
-      dragging.current = null
+      dragRef.current = null
     }
 
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }, [owner, onCardDrop, onCardClick, onBFDrop])
+  }, [owner, onCardClick, onCardMove, onBFDrop])
 
   return (
     <div
@@ -86,19 +126,18 @@ export default function Battlefield({
         position: 'relative',
         flex: 1,
         overflow: 'hidden',
+        minHeight: 0,
         transform: isFlipped ? 'rotate(180deg)' : 'none',
-        ...style,
       }}
     >
-      {cards.map(card => (
+      {(cards || []).map(card => (
         <Card
           key={card.id}
           card={card}
           isLand={card.type === 'Land'}
-          isMine={owner === 'You'}
+          isDragging={dragId === card.id}
           onMouseDown={(e) => handleMouseDown(e, card)}
-          onClick={(e) => { e.stopPropagation() }}
-          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onCardContextMenu && onCardContextMenu(e, card, owner) }}
+          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onCardContext && onCardContext(e, card, owner) }}
         />
       ))}
     </div>
