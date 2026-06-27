@@ -1,4 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
+import TokenPanel from './TokenPanel.jsx'
+import { getTokensForDeck, UNIVERSAL_TOKENS } from '../utils/tokenRegistry.js'
 
 // ── SCRYFALL ────────────────────────────────────────────────
 const SF = (name, ver='normal') =>
@@ -106,6 +108,20 @@ const DEFAULT_DECK_TEXT = `1 Amulet of Vigor
 1 Zuran Orb`
 
 function shuffle(arr) { return [...arr].sort(() => Math.random() - 0.5) }
+// ── COMPUTE DECK TOKENS FROM DECK LIST ──────────────────────
+function getDeckTokens(deckText) {
+  const lines = deckText.split('\n').map(l=>l.trim()).filter(Boolean)
+  const names = []
+  let inSide = false
+  for (const line of lines) {
+    if (line.toLowerCase().startsWith('sideboard')) { inSide=true; continue }
+    if (inSide) continue
+    const m = line.match(/^\d+\s+(.+)$/)
+    if (m) names.push(m[1].trim())
+  }
+  return getTokensForDeck(names)
+}
+
 
 const PHASES = ['Untap','Upkeep','Draw','Main 1','Combat','Main 2','End']
 const CSUBS  = ['Attackers','Blockers','Damage','Cleanup']
@@ -480,7 +496,7 @@ export default function SoloBoard({ onBack }) {
         {/* RIGHT: action buttons */}
         <div style={{display:'flex',alignItems:'center',gap:4}}>
           <button onClick={restart}              style={actionBtn}>Restart</button>
-          <button onClick={()=>setPanel('token')} style={actionBtn}>Add Token</button>
+          <button onClick={()=>setPanel('tokens')} style={actionBtn}>Add Token ▾</button>
           <button onClick={shuffleLib}            style={actionBtn}>Shuffle</button>
           <button onClick={()=>lookTopN(1)}       style={actionBtn}>Top Card</button>
           <button onClick={()=>setPanel('lib')}   style={actionBtn}>View Library</button>
@@ -539,7 +555,7 @@ export default function SoloBoard({ onBack }) {
                 userSelect:'none',transition:'opacity .1s',
               }}>
               {!err?(
-                <img src={SF(card.name)} alt={card.name} draggable={false}
+                <img src={SF(card.tokenScryfall || card.name)} alt={card.name} draggable={false}
                   style={{width:'100%',height:'100%',objectFit:'cover',display:'block',pointerEvents:'none'}}
                   onError={()=>setImgErr(p=>({...p,[card.id+'bf']:true}))}/>
               ):(
@@ -763,26 +779,19 @@ export default function SoloBoard({ onBack }) {
       )}
 
       {/* TOKEN PANEL (triggered from top button) */}
-      {panel==='token'&&(
+      {panel==='tokens'&&(
         <>
           <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',zIndex:800}} onClick={()=>setPanel(null)}/>
-          <div style={{position:'fixed',right:0,top:0,bottom:0,width:280,background:'#111',borderLeft:'1px solid #333',display:'flex',flexDirection:'column',zIndex:801,animation:'sIn .2s ease',padding:16,gap:6,overflowY:'auto'}}>
-            <div style={{display:'flex',alignItems:'center',marginBottom:8}}>
-              <span style={{fontSize:14,fontWeight:600,flex:1}}>Add Token</span>
+          <div style={{position:'fixed',right:0,top:0,bottom:0,width:360,background:'#111',borderLeft:'1px solid #333',display:'flex',flexDirection:'column',zIndex:801,animation:'sIn .2s ease'}}>
+            <div style={{display:'flex',alignItems:'center',padding:'12px 16px',borderBottom:'1px solid #222',flexShrink:0}}>
+              <span style={{fontSize:14,fontWeight:600,flex:1,color:'#e0e0e0'}}>Add Token</span>
               <button onClick={()=>setPanel(null)} style={{background:'none',border:'none',color:'#555',fontSize:18,cursor:'pointer'}}>✕</button>
             </div>
-            {[
-              ['Beast Token','3/3'],['Saproling Token','1/1'],['Goblin Token','1/1'],
-              ['Soldier Token','1/1'],['Zombie Token','2/2'],['Dragon Token','5/5'],
-              ['Elephant Token','3/3'],['Treasure Token','—'],['Clue Token','—'],
-              ['Food Token','—'],['Plant Token','0/1'],['Spider Token','1/2'],
-              ['Insect Token','1/1'],['Cat Token','2/2'],['Bird Token','1/1 Flying'],
-            ].map(([name,pt])=>(
-              <button key={name} onClick={()=>{addToken(name,pt);setPanel(null)}}
-                style={{padding:'9px 12px',borderRadius:5,border:'1px solid #222',background:'#1a1a1a',color:'#ccc',fontSize:12,cursor:'pointer',textAlign:'left',width:'100%'}}>
-                {name} <span style={{color:'#555',fontSize:10}}>· {pt}</span>
-              </button>
-            ))}
+            <TokenPanel
+              deckTokens={deckTokens}
+              onAdd={(tok,qty)=>{addToken(tok,qty);}}
+              onClose={()=>setPanel(null)}
+            />
           </div>
         </>
       )}
