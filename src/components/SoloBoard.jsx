@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import TokenPanel from './TokenPanel.jsx'
+import CardModify from './CardModify.jsx'
 import { getTokensForDeck } from '../utils/tokenRegistry.js'
 
 const SF = (name, ver='normal') =>
@@ -354,8 +355,9 @@ export default function SoloBoard({ onBack }) {
   const [stack,    setStack]    = useState([])
   const [priority, setPriority] = useState('You')
   const [actLog,   setActLog]   = useState([])
-  const [dragging, setDragging] = useState(null)
-  const [imgErr,   setImgErr]   = useState({})
+  const [dragging,    setDragging]    = useState(null)
+  const [imgErr,      setImgErr]      = useState({})
+  const [modifyCard,  setModifyCard]  = useState(null) // card being modified
 
   // ── UI ────────────────────────────────────────────────────
   const [ctx,       setCtx]      = useState(null)
@@ -473,6 +475,12 @@ export default function SoloBoard({ onBack }) {
     if(src==='hand'){card=hand.find(c=>c.id===id);setHand(h=>h.filter(c=>c.id!==id))}
     else            {card=bf.find(c=>c.id===id);  setBF(b=>b.filter(c=>c.id!==id))}
     if(!card)return
+    // Tokens cease to exist when they leave the battlefield — they don't go to any zone
+    if(card.isToken) {
+      log(`${card.name} token ceased to exist`)
+      t(`${card.name} token removed`)
+      return
+    }
     const e={...card,id:'z-'+Date.now()+Math.random()}
     if(zone==='gy')    {setGY(z=>[...z,e])}
     if(zone==='exile') {setExileZ(z=>[...z,e])}
@@ -523,6 +531,11 @@ export default function SoloBoard({ onBack }) {
   }
 
   // ── STACK ─────────────────────────────────────────────────
+  function updateCardOnBF(id, updates) {
+    setBF(b => b.map(c => c.id === id ? { ...c, ...updates } : c))
+    log(`Modified ${updates.name || id}`)
+  }
+
   function pushStack(item){ setStack(s=>[...s,item]); log(`Stack: ${item.name} added`) }
   function popStack(){
     setStack(s=>{
@@ -550,6 +563,10 @@ export default function SoloBoard({ onBack }) {
         const orig=bf.find(c=>c.id===card.id)
         if(orig){setBF(b=>[...b,{...orig,id:'copy-'+Date.now(),x:orig.x+12,y:orig.y+12}]);log(`Copied ${card.name}`)}
         break
+      case 'modify':
+        const mcard=bf.find(c=>c.id===card.id)
+        if(mcard) setModifyCard(mcard)
+        break
       case 'top':
         const btop=bf.find(c=>c.id===card.id)
         if(btop){setBF(b=>b.filter(c=>c.id!==card.id));setLibrary(l=>[{...btop,id:'lib-'+Date.now()},...l]);log(`${card.name} → top of library`)}
@@ -564,7 +581,7 @@ export default function SoloBoard({ onBack }) {
       case 'gy':      toZone(card.id,src,'gy'); break
       case 'exile':   toZone(card.id,src,'exile'); break
       case 'cmd':     toZone(card.id,src,'cmd'); break
-      case 'destroy': toZone(card.id,src,'gy'); log(`${card.name} destroyed`); break
+      case 'destroy': if(card.isToken){setBF(b=>b.filter(c=>c.id!==card.id));log(`${card.name} token ceased to exist`);t('Token removed')}else{toZone(card.id,src,'gy');log(`${card.name} destroyed`)}; break
     }
   }
 
@@ -743,13 +760,43 @@ export default function SoloBoard({ onBack }) {
                   {card.pt&&<div style={{fontSize:9,fontWeight:700,color:'#ccc',marginTop:3}}>{card.pt}</div>}
                 </div>
               )}
-              {(card.counters||0)>0&&(
-                <div style={{position:'absolute',top:-5,left:-5,width:18,height:18,borderRadius:'50%',background:'#2563eb',border:'2px solid #141414',fontSize:8,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,zIndex:5}}>
+              {/* COUNTER BADGES — show all counter types */}
+              {card.countersMap && Object.entries(card.countersMap).map(([key,val])=>{
+                if(!val) return null
+                const CMAP={'+1+1':'#2563eb','-1-1':'#dc2626','loyalty':'#7c3aed','charge':'#d97706','time':'#059669','fade':'#6b7280','ice':'#0ea5e9','verse':'#8b5cf6','age':'#a16207','custom':'#e0e0e0'}
+                const col=CMAP[key]||'#2563eb'
+                return(
+                  <div key={key} style={{position:'absolute',top:-6,left:-6,minWidth:17,height:17,borderRadius:9,background:col,border:'2px solid #141414',fontSize:7,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,zIndex:5,padding:'0 3px'}}>
+                    {val}
+                  </div>
+                )
+              })}
+              {/* Legacy single counter (backwards compat) */}
+              {!card.countersMap && (card.counters||0)>0&&(
+                <div style={{position:'absolute',top:-6,left:-6,width:17,height:17,borderRadius:'50%',background:'#2563eb',border:'2px solid #141414',fontSize:7,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,zIndex:5}}>
                   {card.counters}
                 </div>
               )}
-              {card.pt&&!err&&<div style={{position:'absolute',bottom:3,right:4,fontSize:8,fontWeight:700,color:'#fff',textShadow:'0 1px 4px rgba(0,0,0,1)',background:'rgba(0,0,0,.45)',borderRadius:3,padding:'0 3px'}}>{card.pt}</div>}
+              {/* CUSTOM P/T override */}
+              {(card.customPower||card.customToughness) ? (
+                <div style={{position:'absolute',bottom:3,right:3,fontSize:9,fontWeight:700,color:'#fff',textShadow:'0 1px 4px rgba(0,0,0,1)',background:'rgba(37,99,235,.7)',borderRadius:3,padding:'0 4px',border:'1px solid rgba(59,130,246,.5)'}}>
+                  {card.customPower||'?'}/{card.customToughness||'?'}
+                </div>
+              ) : card.pt&&!err&&(
+                <div style={{position:'absolute',bottom:3,right:3,fontSize:8,fontWeight:700,color:'#fff',textShadow:'0 1px 4px rgba(0,0,0,1)',background:'rgba(0,0,0,.45)',borderRadius:3,padding:'0 3px'}}>
+                  {card.pt}
+                </div>
+              )}
+              {/* STATUS OVERLAYS */}
               {card.isToken&&<div style={{position:'absolute',top:2,right:2,fontSize:6,padding:'1px 3px',borderRadius:3,background:'rgba(124,58,237,.7)',color:'#e0e0e0'}}>TOKEN</div>}
+              {card.sick&&<div style={{position:'absolute',bottom:18,left:'50%',transform:'translateX(-50%)',fontSize:7,padding:'1px 4px',borderRadius:3,background:'rgba(107,114,128,.7)',color:'#e0e0e0',whiteSpace:'nowrap'}}>SICK</div>}
+              {card.phased&&<div style={{position:'absolute',inset:0,background:'rgba(139,92,246,.15)',border:'2px dashed rgba(139,92,246,.5)',borderRadius:7,pointerEvents:'none'}}/>}
+              {/* BATTLEFIELD NOTE */}
+              {card.note&&(
+                <div style={{position:'absolute',top:0,left:0,right:0,background:'rgba(0,0,0,.8)',fontSize:6,color:'#fbbf24',padding:'2px 4px',lineHeight:1.3,borderRadius:'6px 6px 0 0',overflow:'hidden',maxHeight:28}}>
+                  {card.note}
+                </div>
+              )}
               {card.attacking&&<div style={{position:'absolute',top:-13,left:'50%',transform:'translateX(-50%)',fontSize:10,color:'#ef4444',filter:'drop-shadow(0 0 4px rgba(239,68,68,.8))'}}>⚔</div>}
             </div>
           )
@@ -828,6 +875,7 @@ export default function SoloBoard({ onBack }) {
               <CM onClick={()=>doCtx('-ctr')}>－ Remove counter</CM>
               <CM onClick={()=>doCtx('+2ctr')}>＋＋ Add 2 counters</CM>
               <CM onClick={()=>doCtx('copy')}>⎘ Copy / Create token</CM>
+              <CM onClick={()=>doCtx('modify')}>✏ Modify card</CM>
               <Sep/>
               <CM onClick={()=>doCtx('stack')}>⚡ Add to stack</CM>
               <CM onClick={()=>doCtx('hand')}>✋ Return to hand</CM>
@@ -968,6 +1016,15 @@ export default function SoloBoard({ onBack }) {
             <TokenPanel deckTokens={deckTokens} onAdd={(tok,qty)=>addToken(tok,qty)} onClose={()=>setPanel(null)}/>
           </div>
         </>
+      )}
+
+      {/* CARD MODIFY MODAL */}
+      {modifyCard && (
+        <CardModify
+          card={modifyCard}
+          onUpdate={(id, updates) => { updateCardOnBF(id, updates); t('Card updated') }}
+          onClose={() => setModifyCard(null)}
+        />
       )}
 
       {/* TOAST */}
