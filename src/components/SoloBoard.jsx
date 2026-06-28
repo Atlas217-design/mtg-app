@@ -991,9 +991,9 @@ export default function SoloBoard({ onBack }) {
       </div>
 
       {/* ── BOTTOM BAR ── */}
-      <div style={{background:'#111',borderTop:'1px solid #333',flexShrink:0}}>
+      <div style={{background:'#111',borderTop:'1px solid #333',flexShrink:0,paddingRight:commander?164:0,transition:'padding-right .15s'}}>
         {/* HAND */}
-        <div style={{display:'flex',alignItems:'flex-end',gap:5,padding:'8px 10px 6px',overflowX:'auto',overflowY:'visible',minHeight:148}}>
+        <div style={{display:'flex',alignItems:'flex-end',gap:6,padding:'10px 12px 8px',overflowX:'auto',overflowY:'visible',minHeight:220}}>
           {hand.map(card=>{
             const err=imgErr[card.id+'h']
             return (
@@ -1002,9 +1002,9 @@ export default function SoloBoard({ onBack }) {
                 onMouseEnter={()=>setHovered(card.id)}
                 onMouseLeave={()=>setHovered(null)}
                 onContextMenu={e=>{e.preventDefault();setCtx({x:e.clientX,y:e.clientY,card,src:'hand'})}}
-                style={{flexShrink:0,width:92,height:128,borderRadius:7,border:'1.5px solid #3a3a3a',background:'#0d1a0d',cursor:'grab',overflow:'hidden',position:'relative',transition:'transform .12s,border-color .1s,box-shadow .1s',boxShadow:'0 3px 10px rgba(0,0,0,.7)'}}
-                onMouseEnter2={e=>{e.currentTarget.style.transform='translateY(-12px)';e.currentTarget.style.borderColor='#a78bfa';e.currentTarget.style.boxShadow='0 12px 28px rgba(0,0,0,.9),0 0 0 1px rgba(167,139,250,.4)'}}
-                onMouseLeave2={e=>{e.currentTarget.style.transform='';e.currentTarget.style.borderColor='#3a3a3a';e.currentTarget.style.boxShadow='0 3px 10px rgba(0,0,0,.7)'}}>
+                style={{flexShrink:0,width:138,height:193,borderRadius:8,border:'1.5px solid #3a3a3a',background:'#0d1a0d',cursor:'grab',overflow:'hidden',position:'relative',transition:'transform .12s,border-color .1s,box-shadow .1s',boxShadow:'0 3px 10px rgba(0,0,0,.7)'}}
+                onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-18px)';e.currentTarget.style.borderColor='#a78bfa';e.currentTarget.style.boxShadow='0 16px 32px rgba(0,0,0,.9),0 0 0 1px rgba(167,139,250,.4)'}}
+                onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.borderColor='#3a3a3a';e.currentTarget.style.boxShadow='0 3px 10px rgba(0,0,0,.7)'}}>
                 {!err?(
                   <img src={SF(card.name)} alt={card.name} draggable={false}
                     style={{width:'100%',height:'100%',objectFit:'cover',display:'block',pointerEvents:'none'}}
@@ -1028,33 +1028,39 @@ export default function SoloBoard({ onBack }) {
           <div onClick={()=>setPanel('exile')}      style={{...ZP,color:exileZ.length>0?'#aaa':'#555'}}>Exile ({exileZ.length})</div>
           <div onClick={()=>setPanel('cmd')}        style={{...ZP,color:cmdZ.length>0?'#a78bfa':'#555'}}>Command ({cmdZ.length})</div>
           {sideboard.length>0&&<div onClick={()=>setPanel('sideboard')} style={{...ZP,color:'#f59e0b',borderColor:'#2a1e00'}}>Sideboard ({sideboard.length})</div>}
-          {/* COMMANDER — inline in zone bar */}
-          {commander&&(
-            <CommanderZone
-              commander={commander}
-              onCastFromZone={castCommander}
-              onReturnToZone={returnCommanderToZone}
-              onPutOntoBF={commanderToBF}
-              onCastFromHand={()=>{
-                // Cast from hand — no tax, doesn't increment castCount
-                const newCard={id:'cmd-bf-'+Date.now(),name:commander.name,type:'Creature',col:'cg',art:'⬡',pt:'',x:200,y:60,tapped:false,attacking:false,blocking:false,targeted:false,counters:0,isCommander:true}
-                setBF(b=>[...b,newCard])
-                setCommander(c=>c?{...c,inZone:false}:c)
-                t(commander.name+' cast from hand (no tax)'); log(commander.name+' cast from hand — no tax')
-              }}
-              onContextMenu={(e)=>{
-                if(!commander)return
-                e.preventDefault()
-                const fakeCard={id:'commander',name:commander.name,isCommander:true,type:'Creature',col:'cg',art:'⬡',pt:''}
-                setCtx({x:e.clientX,y:e.clientY,card:fakeCard,src:'cmd'})
-              }}
-            />
-          )}
+
         </div>
       </div>
 
-      {/* ── CARD HOVER PREVIEW (bottom-right) ── */}
-      {hoveredCard && <CardPreview card={hoveredCard} />}
+      {/* ── COMMANDER PANEL — fixed bottom-right, full card art ── */}
+      {commander&&(
+        <CommanderZone
+          commander={commander}
+          onCastFromZone={castCommander}
+          onReturnToZone={returnCommanderToZone}
+          onPutOntoBF={commanderToBF}
+          onCastFromHand={()=>{
+            const newCard={id:'cmd-bf-'+Date.now(),name:commander.name,type:'Creature',col:'cg',art:'⬡',pt:'',x:200,y:60,tapped:false,attacking:false,blocking:false,targeted:false,counters:0,isCommander:true}
+            setBF(b=>[...b,newCard])
+            setCommander(cx=>cx?{...cx,inZone:false}:cx)
+            t(commander.name+' cast from hand (no tax)')
+            log(commander.name+' cast from hand — no tax (CR 903.8)')
+          }}
+          onContextMenu={(e)=>{
+            if(!commander)return
+            e.preventDefault()
+            const fakeCard={id:'commander',name:commander.name,isCommander:true,type:'Creature',col:'cg',art:'⬡',pt:''}
+            setCtx({x:e.clientX,y:e.clientY,card:fakeCard,src:'cmd'})
+          }}
+        />
+      )}
+
+      {/* ── CARD HOVER PREVIEW — shifted left when commander panel is showing ── */}
+      {hoveredCard&&(
+        <div style={{position:'fixed',bottom:16,right:commander?174:16,zIndex:8000,pointerEvents:'none',transition:'right .15s'}}>
+          <CardPreview card={hoveredCard}/>
+        </div>
+      )}
 
       {/* ── STACK TRACKER ── */}
       {showStack&&(
