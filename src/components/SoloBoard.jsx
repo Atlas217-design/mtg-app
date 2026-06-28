@@ -73,10 +73,10 @@ function CardPreview({ name }) {
   if (!name) return null
   return (
     <div style={{
-      position:'fixed',bottom:16,right:16,zIndex:7000,
-      width:275,borderRadius:12,overflow:'hidden',
+      position:'fixed',bottom:240,left:16,zIndex:7000,
+      width:200,borderRadius:10,overflow:'hidden',
       boxShadow:'0 16px 48px rgba(0,0,0,.95)',
-      border:'1px solid #444',pointerEvents:'none',
+      border:'1px solid #555',pointerEvents:'none',
       animation:'previewIn .12s ease',
     }}>
       <style>{`@keyframes previewIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}`}</style>
@@ -152,6 +152,86 @@ function Sep() { return <div style={{borderTop:'1px solid #222',margin:'3px 0'}}
 const TB  = {padding:'3px 10px',borderRadius:4,border:'1px solid #333',background:'#1a1a1a',color:'#888',fontSize:12,cursor:'pointer'}
 const AB  = {padding:'5px 10px',borderRadius:4,border:'1px solid #333',background:'#1a1a1a',color:'#ccc',fontSize:11,cursor:'pointer',whiteSpace:'nowrap'}
 const ZP  = {padding:'4px 10px',borderRadius:20,border:'1px solid #222',background:'#1a1a1a',color:'#555',fontSize:10,cursor:'pointer',whiteSpace:'nowrap'}
+
+
+// ── INLINE COMMANDER (lives in bottom pill bar) ─────────────
+function InlineCommander({ commander, onCast, onReturn, onToBF, onContextMenu }) {
+  const [imgErr, setImgErr] = React.useState(false)
+  const tax      = commander.castCount * 2
+  const castCount= commander.castCount || 0
+  const inZone   = commander.inZone
+
+  return (
+    <div style={{
+      display:'flex', alignItems:'center', gap:8,
+      padding:'4px 8px 4px 4px',
+      borderRadius:8,
+      border:`1px solid ${inZone?'#4c3a8a':'#222'}`,
+      background: inZone?'#0d0a1e':'#111',
+      flexShrink:0,
+    }}>
+      {/* CARD THUMBNAIL */}
+      <div
+        onContextMenu={onContextMenu}
+        style={{
+          width:38, height:53, borderRadius:4,
+          overflow:'hidden', flexShrink:0,
+          border:`1.5px solid ${inZone?'#7c3aed':'#333'}`,
+          cursor:'context-menu', position:'relative',
+          opacity: inZone?1:0.5,
+        }}>
+        {!imgErr
+          ? <img src={SF(commander.name)} alt={commander.name} draggable={false}
+              style={{width:'100%',height:'100%',objectFit:'cover',pointerEvents:'none'}}
+              onError={()=>setImgErr(true)}/>
+          : <div style={{width:'100%',height:'100%',background:'#14102a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:6,color:'#a78bfa',textAlign:'center',padding:2}}>
+              {commander.name.split(' ').slice(0,2).join(' ')}
+            </div>
+        }
+        {/* LOCATION DOT */}
+        <div style={{position:'absolute',bottom:1,right:1,width:6,height:6,borderRadius:'50%',background:inZone?'#7c3aed':'#2a2a2a',border:'1px solid #0a0a0a'}}/>
+      </div>
+
+      {/* INFO + ACTIONS */}
+      <div style={{display:'flex',flexDirection:'column',gap:3}}>
+        <div style={{fontSize:8,color:inZone?'#a78bfa':'#555',fontWeight:500,maxWidth:90,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+          {commander.name}
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:4}}>
+          <span style={{
+            fontSize:8,padding:'1px 5px',borderRadius:8,
+            background:inZone?'rgba(124,58,237,.2)':'#111',
+            border:`1px solid ${inZone?'#4c3a8a':'#222'}`,
+            color:inZone?'#a78bfa':'#444',
+          }}>
+            {inZone?'CMD Zone':'On BF'}
+          </span>
+          {tax>0&&(
+            <span style={{fontSize:8,padding:'1px 5px',borderRadius:8,background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',color:'#f59e0b'}}>
+              Tax +{tax}
+            </span>
+          )}
+          {castCount>0&&(
+            <span style={{fontSize:8,color:'#444'}}>×{castCount}</span>
+          )}
+        </div>
+        <div style={{display:'flex',gap:3}}>
+          {inZone
+            ? <button onClick={onCast} style={{padding:'3px 8px',borderRadius:4,background:'#14102a',border:'1px solid #7c3aed',color:'#a78bfa',fontSize:9,cursor:'pointer',fontWeight:600,whiteSpace:'nowrap'}}>
+                Cast{tax>0&&<span style={{color:'#f59e0b'}}> +{tax}</span>}
+              </button>
+            : <button onClick={onReturn} style={{padding:'3px 8px',borderRadius:4,background:'#0d0d0d',border:'1px solid #2a2050',color:'#7c3aed',fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>
+                → CMD Zone
+              </button>
+          }
+          <button onClick={onToBF} style={{padding:'3px 6px',borderRadius:4,background:'#0d0d0d',border:'1px solid #1a1a1a',color:'#333',fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>
+            → BF
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ════════════════════════════════════════════════════════════
 // MAIN BOARD
@@ -719,7 +799,7 @@ export default function SoloBoard({ onBack, config }) {
       </div>{/* end battlefield */}
 
       {/* BOTTOM AREA: hand + zone pills */}
-      <div style={{background:'#111',borderTop:'1px solid #333',flexShrink:0,paddingRight:commander?164:0,transition:'padding-right .15s'}}>
+      <div style={{background:'#111',borderTop:'1px solid #333',flexShrink:0}}>
         {/* HAND ROW */}
         <div style={{display:'flex',alignItems:'flex-end',gap:6,padding:'10px 12px 8px',overflowX:'auto',overflowY:'visible',minHeight:220}}>
           {hand.map(card=>{
@@ -741,33 +821,37 @@ export default function SoloBoard({ onBack, config }) {
           {hand.length===0&&<div style={{fontSize:11,color:'#2a2a2a',padding:'0 8px',alignSelf:'center'}}>Hand is empty</div>}
         </div>
 
-        {/* ZONE PILLS */}
-        <div style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px 6px',borderTop:'1px solid #222',flexWrap:'wrap'}}>
-          <div onClick={()=>setPanel('hand-view')} style={{...ZP,color:hand.length>0?'#aaa':'#555'}}>Hand ({hand.length})</div>
-          <div onClick={()=>setPanel('lib')} style={ZP}>Library ({library.length})</div>
-          <div onClick={()=>setPanel('gy')} style={{...ZP,color:gy.length>0?'#aaa':'#555'}}>Graveyard ({gy.length})</div>
-          <div onClick={()=>setPanel('exile')} style={{...ZP,color:exileZ.length>0?'#aaa':'#555'}}>Exile ({exileZ.length})</div>
-          {cmdZ.length>0&&<div onClick={()=>setPanel('cmd')} style={{...ZP,color:'#a78bfa'}}>Command ({cmdZ.length})</div>}
-          {sideboard.length>0&&<div onClick={()=>setPanel('sideboard')} style={{...ZP,color:'#f59e0b'}}>Sideboard ({sideboard.length})</div>}
-          <div onClick={()=>drawN(1)} style={{...ZP,color:'#60a5fa',borderColor:'#1a2a4a'}}>Draw</div>
+        {/* ZONE PILLS + INLINE COMMANDER */}
+        <div style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px 6px',borderTop:'1px solid #222'}}>
+          {/* PILLS LEFT */}
+          <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',flex:1}}>
+            <div onClick={()=>setPanel('hand-view')} style={{...ZP,color:hand.length>0?'#aaa':'#555'}}>Hand ({hand.length})</div>
+            <div onClick={()=>setPanel('lib')} style={ZP}>Library ({library.length})</div>
+            <div onClick={()=>setPanel('gy')} style={{...ZP,color:gy.length>0?'#aaa':'#555'}}>Graveyard ({gy.length})</div>
+            <div onClick={()=>setPanel('exile')} style={{...ZP,color:exileZ.length>0?'#aaa':'#555'}}>Exile ({exileZ.length})</div>
+            {cmdZ.length>0&&<div onClick={()=>setPanel('cmd')} style={{...ZP,color:'#a78bfa'}}>Command ({cmdZ.length})</div>}
+            {sideboard.length>0&&<div onClick={()=>setPanel('sideboard')} style={{...ZP,color:'#f59e0b'}}>Sideboard ({sideboard.length})</div>}
+            <div onClick={()=>drawN(1)} style={{...ZP,color:'#60a5fa',borderColor:'#1a2a4a'}}>Draw</div>
+          </div>
+
+          {/* COMMANDER — inline right side of pill bar */}
+          {commander&&(
+            <InlineCommander
+              commander={commander}
+              onCast={castCommander}
+              onReturn={returnCommanderToZone}
+              onToBF={commanderToBF}
+              onContextMenu={e=>{
+                e.preventDefault()
+                const fc={id:'commander',name:commander.name,isCommander:true,type:'Creature',col:'cg',art:'⬡',pt:''}
+                setCtx({x:e.clientX,y:e.clientY,card:fc,src:'cmd'})
+              }}
+            />
+          )}
         </div>
       </div>
 
-      {/* COMMANDER PANEL — fixed bottom-right */}
-      {commander&&(
-        <CommanderZone
-          commander={commander}
-          onCastFromZone={castCommander}
-          onReturnToZone={returnCommanderToZone}
-          onPutOntoBF={commanderToBF}
-          onCastFromHand={castCommanderFromHand}
-          onContextMenu={e=>{
-            if(!commander)return; e.preventDefault()
-            const fc={id:'commander',name:commander.name,isCommander:true,type:'Creature',col:'cg',art:'⬡',pt:''}
-            setCtx({x:e.clientX,y:e.clientY,card:fc,src:'cmd'})
-          }}
-        />
-      )}
+
 
       {/* CARD HOVER PREVIEW */}
       <CardPreview name={hovered}/>
