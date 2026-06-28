@@ -155,77 +155,109 @@ const ZP  = {padding:'4px 10px',borderRadius:20,border:'1px solid #222',backgrou
 
 
 // ── INLINE COMMANDER (lives in bottom pill bar) ─────────────
+// Layout: [LARGE CARD BOX] [SMALLER INFO/ACTION BOX]
 function InlineCommander({ commander, onCast, onReturn, onToBF, onContextMenu }) {
   const [imgErr, setImgErr] = React.useState(false)
-  const tax      = commander.castCount * 2
-  const castCount= commander.castCount || 0
-  const inZone   = commander.inZone
+  const tax       = commander.castCount * 2
+  const castCount = commander.castCount || 0
+  const inZone    = commander.inZone
 
   return (
     <div style={{
-      display:'flex', alignItems:'center', gap:8,
-      padding:'4px 8px 4px 4px',
-      borderRadius:8,
-      border:`1px solid ${inZone?'#4c3a8a':'#222'}`,
-      background: inZone?'#0d0a1e':'#111',
-      flexShrink:0,
+      display:'flex', alignItems:'stretch', gap:0,
+      flexShrink:0, height:193,
+      borderRadius:8, overflow:'hidden',
+      border:`1.5px solid ${inZone?'#4c3a8a':'#1a1a1a'}`,
     }}>
-      {/* CARD THUMBNAIL */}
+      {/* LARGE BOX — card image, matches hand card height */}
       <div
         onContextMenu={onContextMenu}
         style={{
-          width:38, height:53, borderRadius:4,
-          overflow:'hidden', flexShrink:0,
-          border:`1.5px solid ${inZone?'#7c3aed':'#333'}`,
+          width:138, flexShrink:0,
+          background:'#0d0a1e',
           cursor:'context-menu', position:'relative',
-          opacity: inZone?1:0.5,
+          overflow:'hidden',
+          opacity: inZone?1:0.6,
+          borderRight:`1px solid ${inZone?'#4c3a8a':'#1a1a1a'}`,
         }}>
         {!imgErr
           ? <img src={SF(commander.name)} alt={commander.name} draggable={false}
-              style={{width:'100%',height:'100%',objectFit:'cover',pointerEvents:'none'}}
+              style={{width:'100%',height:'100%',objectFit:'cover',display:'block',pointerEvents:'none'}}
               onError={()=>setImgErr(true)}/>
-          : <div style={{width:'100%',height:'100%',background:'#14102a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:6,color:'#a78bfa',textAlign:'center',padding:2}}>
-              {commander.name.split(' ').slice(0,2).join(' ')}
+          : <div style={{width:'100%',height:'100%',background:'#14102a',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:6,gap:4}}>
+              <div style={{fontSize:16,color:'#4c3a8a'}}>⬡</div>
+              <div style={{fontSize:7,color:'#a78bfa',textAlign:'center',lineHeight:1.4}}>{commander.name}</div>
             </div>
         }
-        {/* LOCATION DOT */}
-        <div style={{position:'absolute',bottom:1,right:1,width:6,height:6,borderRadius:'50%',background:inZone?'#7c3aed':'#2a2a2a',border:'1px solid #0a0a0a'}}/>
+        {/* STATUS BADGE overlay on card */}
+        <div style={{
+          position:'absolute',bottom:0,left:0,right:0,
+          background:'rgba(0,0,0,.75)',
+          padding:'2px 4px',
+          fontSize:7, textAlign:'center',
+          color: inZone?'#a78bfa':'#555',
+        }}>
+          {inZone ? 'CMD Zone' : 'On BF'}
+        </div>
       </div>
 
-      {/* INFO + ACTIONS */}
-      <div style={{display:'flex',flexDirection:'column',gap:3}}>
-        <div style={{fontSize:8,color:inZone?'#a78bfa':'#555',fontWeight:500,maxWidth:90,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
-          {commander.name}
+      {/* SMALL BOX — info + actions */}
+      <div style={{
+        width:110, flexShrink:0,
+        background: inZone?'#0a0818':'#0d0d0d',
+        display:'flex', flexDirection:'column',
+        padding:'6px 8px', gap:4,
+        justifyContent:'space-between',
+      }}>
+        {/* HEADER */}
+        <div>
+          <div style={{fontSize:7,color:'#4c3a8a',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:3}}>Commander</div>
+          <div style={{fontSize:9,color:inZone?'#c4b5fd':'#555',fontWeight:500,lineHeight:1.3,wordBreak:'break-word'}}>
+            {commander.name}
+          </div>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:4}}>
-          <span style={{
-            fontSize:8,padding:'1px 5px',borderRadius:8,
-            background:inZone?'rgba(124,58,237,.2)':'#111',
-            border:`1px solid ${inZone?'#4c3a8a':'#222'}`,
-            color:inZone?'#a78bfa':'#444',
-          }}>
-            {inZone?'CMD Zone':'On BF'}
-          </span>
-          {tax>0&&(
-            <span style={{fontSize:8,padding:'1px 5px',borderRadius:8,background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',color:'#f59e0b'}}>
-              Tax +{tax}
-            </span>
-          )}
+
+        {/* TAX INFO */}
+        <div style={{
+          padding:'4px 6px', borderRadius:5,
+          background: tax>0?'rgba(245,158,11,.08)':'rgba(124,58,237,.05)',
+          border:`1px solid ${tax>0?'rgba(245,158,11,.25)':'rgba(124,58,237,.15)'}`,
+        }}>
+          <div style={{fontSize:8,color:'#555',marginBottom:2}}>
+            Tax (CR 903.8)
+          </div>
+          <div style={{fontSize:14,fontWeight:700,color:tax>0?'#f59e0b':'#2a2050',lineHeight:1}}>
+            {tax>0?`+${tax}`:'{0}'}
+          </div>
           {castCount>0&&(
-            <span style={{fontSize:8,color:'#444'}}>×{castCount}</span>
+            <div style={{fontSize:8,color:'#3a3050',marginTop:1}}>cast ×{castCount}</div>
           )}
         </div>
-        <div style={{display:'flex',gap:3}}>
+
+        {/* ACTIONS */}
+        <div style={{display:'flex',flexDirection:'column',gap:3}}>
           {inZone
-            ? <button onClick={onCast} style={{padding:'3px 8px',borderRadius:4,background:'#14102a',border:'1px solid #7c3aed',color:'#a78bfa',fontSize:9,cursor:'pointer',fontWeight:600,whiteSpace:'nowrap'}}>
-                Cast{tax>0&&<span style={{color:'#f59e0b'}}> +{tax}</span>}
+            ? <button onClick={onCast} style={{
+                padding:'5px 0',borderRadius:4,width:'100%',
+                background:'#14102a',border:'1px solid #7c3aed',
+                color:'#a78bfa',fontSize:9,cursor:'pointer',fontWeight:600,
+              }}>
+                Cast {tax>0&&<span style={{color:'#f59e0b'}}>+{tax}</span>}
               </button>
-            : <button onClick={onReturn} style={{padding:'3px 8px',borderRadius:4,background:'#0d0d0d',border:'1px solid #2a2050',color:'#7c3aed',fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>
+            : <button onClick={onReturn} style={{
+                padding:'5px 0',borderRadius:4,width:'100%',
+                background:'#0d0d0d',border:'1px solid #2a2050',
+                color:'#7c3aed',fontSize:9,cursor:'pointer',
+              }}>
                 → CMD Zone
               </button>
           }
-          <button onClick={onToBF} style={{padding:'3px 6px',borderRadius:4,background:'#0d0d0d',border:'1px solid #1a1a1a',color:'#333',fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>
-            → BF
+          <button onClick={onToBF} style={{
+            padding:'4px 0',borderRadius:4,width:'100%',
+            background:'#0d0d0d',border:'1px solid #1a1a1a',
+            color:'#333',fontSize:8,cursor:'pointer',
+          }}>
+            → BF (no tax)
           </button>
         </div>
       </div>
@@ -238,7 +270,7 @@ function InlineCommander({ commander, onCast, onReturn, onToBF, onContextMenu })
 // ════════════════════════════════════════════════════════════
 export default function SoloBoard({ onBack, config }) {
   // ── DECK / ZONES ─────────────────────────────────────────
-  const [library,   setLibrary]   = useState(() => shuffle(parseDefault()))
+  const [library,   setLibrary]   = useState([])
   const [hand,      setHand]      = useState([])
   const [bf,        setBF]        = useState([])
   const [gy,        setGY]        = useState([])
@@ -247,7 +279,7 @@ export default function SoloBoard({ onBack, config }) {
   const [sideboard, setSideboard] = useState([])
 
   // ── GAME STATE ───────────────────────────────────────────
-  const [life,    setLife]    = useState(config?.startingLife || 40)
+  const [life,    setLife]    = useState(40)
   const [poison,  setPoison]  = useState(0)
   const [energy,  setEnergy]  = useState(0)
   const [exp,     setExp]     = useState(0)
@@ -303,7 +335,6 @@ export default function SoloBoard({ onBack, config }) {
   const hDrag    = useRef(null)
   const bDrag    = useRef(null)
 
-  useEffect(() => { drawN(7, true) }, [])
 
   // ── HELPERS ──────────────────────────────────────────────
   function log(text) { setActLog(l => [...l, {text, turn, time:Date.now()}]) }
@@ -801,7 +832,7 @@ export default function SoloBoard({ onBack, config }) {
       {/* BOTTOM AREA: hand + zone pills */}
       <div style={{background:'#111',borderTop:'1px solid #333',flexShrink:0}}>
         {/* HAND ROW */}
-        <div style={{display:'flex',alignItems:'flex-end',gap:6,padding:'10px 12px 8px',overflowX:'auto',overflowY:'visible',minHeight:220}}>
+        <div style={{display:'flex',alignItems:'flex-end',gap:6,padding:'10px 12px 8px',overflowX:'auto',overflowY:'visible',minHeight:220,paddingRight:12}}>
           {hand.map(card=>{
             const err=imgErr[card.id+'h']
             return (
