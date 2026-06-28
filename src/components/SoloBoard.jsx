@@ -376,7 +376,7 @@ export default function SoloBoard({ onBack }) {
   const [showDice,   setShowDice]  = useState(false)
   const [showDecks,  setShowDecks] = useState(false)
   const [showGrid,   setShowGrid]  = useState(false)
-  const [gridSize,   setGridSize]  = useState(40) // px
+  const [gridSize,   setGridSize]  = useState(20) // px — subtle alignment
   const [currentDeckId, setCurrentDeckId] = useState(null)
   const [bfCtxMenu,  setBfCtxMenu] = useState(null) // {x,y} for BF right-click
   const [importTxt, setImportTxt]= useState('')
@@ -405,11 +405,16 @@ export default function SoloBoard({ onBack }) {
   }
 
   // ── PHASE ─────────────────────────────────────────────────
+  // Temp mana ref so ManaTracker can trigger clear
+  const emptyTempMana = React.useRef(null)
+
   function goPhase(i) {
     setPhaseVal(i)
     setCsub(i===4?0:null)
     t(PHASES[i])
     log(`Phase → ${PHASES[i]}`)
+    // Auto-clear temp mana on phase change (can be suppressed per card effect)
+    if (emptyTempMana.current) emptyTempMana.current()
   }
 
   // ── END TURN ──────────────────────────────────────────────
@@ -833,9 +838,20 @@ export default function SoloBoard({ onBack }) {
           <button onClick={()=>setShowMana(s=>!s)} style={{...AB,borderColor:showMana?'#1a4a2a':'#333',color:showMana?'#4ade80':'#ccc'}}>🔮 Mana</button>
           <button onClick={()=>setShowDice(s=>!s)} style={AB}>🎲 Dice</button>
           <button onClick={()=>setShowDecks(true)} style={AB}>📚 Decks</button>
-          <button onClick={()=>setShowGrid(s=>!s)} style={{...AB,borderColor:showGrid?'#2a2050':'#333',color:showGrid?'#a78bfa':'#ccc'}}>
-            {showGrid?'Grid ON':'Grid OFF'}
-          </button>
+          <div style={{display:'flex',gap:0,border:'1px solid '+(showGrid?'#2a2050':'#333'),borderRadius:4,overflow:'hidden'}}>
+            <button onClick={()=>setShowGrid(s=>!s)} style={{...AB,border:'none',borderRadius:0,borderRight:'1px solid #222',color:showGrid?'#a78bfa':'#555',padding:'5px 8px'}}>
+              {showGrid?'⊞ Grid ON':'⊟ Grid OFF'}
+            </button>
+            {showGrid&&(
+              <select value={gridSize} onChange={e=>setGridSize(Number(e.target.value))}
+                style={{background:'#1a1a1a',border:'none',color:'#a78bfa',fontSize:10,padding:'0 4px',cursor:'pointer',outline:'none'}}>
+                <option value={10}>10px</option>
+                <option value={20}>20px</option>
+                <option value={40}>40px</option>
+                <option value={60}>60px</option>
+              </select>
+            )}
+          </div>
           <button onClick={()=>setPanel('import')} style={AB}>Import</button>
           <button onClick={drawOne}                style={AB}>Draw</button>
           <button onClick={endTurn}                style={{...AB,background:'#2563eb',border:'1px solid #3b82f6',color:'#fff',fontWeight:600}}>Next Turn</button>
@@ -1200,7 +1216,7 @@ export default function SoloBoard({ onBack }) {
       )}
 
       {/* MANA TRACKER */}
-      {showMana&&<ManaTracker onClose={()=>setShowMana(false)}/>}
+      {showMana&&<ManaTracker onClose={()=>setShowMana(false)} onEmptyNormal={fn=>{emptyTempMana.current=fn}}/>}
 
       {/* DICE ROLLER */}
       {showDice&&(
