@@ -2,6 +2,10 @@ import React, { useState, useRef, useEffect } from 'react'
 import TokenPanel from './TokenPanel.jsx'
 import CardModify from './CardModify.jsx'
 import CommanderZone from './CommanderZone.jsx'
+import ManaTracker from './ManaTracker.jsx'
+import DiceRoller from './DiceRoller.jsx'
+import DeckManager from './DeckManager.jsx'
+import { saveDeck, shuffleCards, parseDeckFromText } from '../utils/deckStorage.js'
 import { getTokensForDeck } from '../utils/tokenRegistry.js'
 
 const SF = (name, ver='normal') =>
@@ -367,10 +371,18 @@ export default function SoloBoard({ onBack }) {
   const [panel,     setPanel]    = useState(null)
   const [toast,     setToast]    = useState(null)
   const [showStack, setShowStack]= useState(false)
-  const [showCtrs,  setShowCtrs] = useState(false)
+  const [showCtrs,   setShowCtrs]  = useState(false)
+  const [showMana,   setShowMana]  = useState(false)
+  const [showDice,   setShowDice]  = useState(false)
+  const [showDecks,  setShowDecks] = useState(false)
+  const [showGrid,   setShowGrid]  = useState(false)
+  const [gridSize,   setGridSize]  = useState(40) // px
+  const [currentDeckId, setCurrentDeckId] = useState(null)
+  const [bfCtxMenu,  setBfCtxMenu] = useState(null) // {x,y} for BF right-click
   const [importTxt, setImportTxt]= useState('')
   const [hovered,   setHovered]  = useState(null) // card object for preview
   const [topCards,  setTopCards] = useState([])
+  const [libSearch, setLibSearch] = useState('')
 
   const bfRef    = useRef(null)
   const toastRef = useRef(null)
@@ -460,7 +472,13 @@ export default function SoloBoard({ onBack }) {
   }
 
   // ── MOVE ON BF ────────────────────────────────────────────
-  function moveBF(id,x,y) { setBF(b=>b.map(c=>c.id===id?{...c,x:Math.max(0,x),y:Math.max(0,y)}:c)) }
+  function moveBF(id,x,y) {
+    const bfEl = bfRef.current
+    const bfRect = bfEl ? bfEl.getBoundingClientRect() : {width:800,height:400}
+    const snappedX = snapToGrid(Math.max(0, Math.min(x, bfRect.width  - 95)),  gridSize)
+    const snappedY = snapToGrid(Math.max(0, Math.min(y, bfRect.height - 130)), gridSize)
+    setBF(b => b.map(c => c.id===id ? {...c, x:snappedX, y:snappedY} : c))
+  }
 
   // ── TAP ───────────────────────────────────────────────────
   function tapCard(id) {
@@ -722,6 +740,38 @@ export default function SoloBoard({ onBack }) {
     window.addEventListener('mousemove',mv); window.addEventListener('mouseup',up)
   }
 
+  // ── GRID SNAP ──────────────────────────────────────────────
+  function snapToGrid(val, size) {
+    if (!showGrid) return val
+    return Math.round(val / size) * size
+  }
+
+  // ── LOAD DECK ──────────────────────────────────────────────
+  function loadDeck(deck) {
+    const shuffled = shuffleCards(deck.cards || [])
+    setLibrary(shuffled)
+    setHand([])
+    setBF([])
+    setGY([])
+    setExileZ([])
+    setCmdZ([])
+    setLife(40)
+    setPoison(0); setEnergy(0); setExp(0)
+    setTurn(1); setPhaseVal(3); setCsub(null)
+    setStack([]); setPriority('You'); setActLog([])
+    setCurrentDeckId(deck.id || null)
+    // Set commander if declared
+    if (deck.commander) {
+      setCommander({ name: deck.commander, castCount: 0, inZone: true })
+      log(`Commander: ${deck.commander}`)
+    } else {
+      setCommander(null)
+    }
+    setTimeout(() => drawN(7, true), 50)
+    t(`Loaded: ${deck.name || 'deck'}`)
+    log(`=== Deck loaded: ${deck.name} ===`)
+  }
+
   function mkGhost(left,top,name) {
     const g=document.createElement('div')
     g.style.cssText=`position:fixed;pointer-events:none;z-index:9999;width:92px;height:128px;border-radius:7px;border:2px solid #a78bfa;box-shadow:0 12px 32px rgba(0,0,0,.9);background:#0d1a0d;overflow:hidden;opacity:.9;transform:rotate(3deg) scale(1.04);left:${left}px;top:${top}px;`
@@ -780,6 +830,12 @@ export default function SoloBoard({ onBack }) {
           <button onClick={shuffleLib}             style={AB}>Shuffle</button>
           <button onClick={()=>lookTopN(1)}        style={AB}>Top Card</button>
           <button onClick={()=>setPanel('lib')}    style={AB}>Library</button>
+          <button onClick={()=>setShowMana(s=>!s)} style={{...AB,borderColor:showMana?'#1a4a2a':'#333',color:showMana?'#4ade80':'#ccc'}}>🔮 Mana</button>
+          <button onClick={()=>setShowDice(s=>!s)} style={AB}>🎲 Dice</button>
+          <button onClick={()=>setShowDecks(true)} style={AB}>📚 Decks</button>
+          <button onClick={()=>setShowGrid(s=>!s)} style={{...AB,borderColor:showGrid?'#2a2050':'#333',color:showGrid?'#a78bfa':'#ccc'}}>
+            {showGrid?'Grid ON':'Grid OFF'}
+          </button>
           <button onClick={()=>setPanel('import')} style={AB}>Import</button>
           <button onClick={drawOne}                style={AB}>Draw</button>
           <button onClick={endTurn}                style={{...AB,background:'#2563eb',border:'1px solid #3b82f6',color:'#fff',fontWeight:600}}>Next Turn</button>
@@ -803,6 +859,11 @@ export default function SoloBoard({ onBack }) {
 
       {/* ── BATTLEFIELD ── */}
       <div ref={bfRef} style={{flex:1,position:'relative',overflow:'hidden',background:'#141414',cursor:'default'}} onClick={()=>{setCtx(null);setShowCtrs(false)}}>
+        {/* GRID OVERLAY */}
+        {showGrid&&(
+          <div style={{position:'absolute',inset:0,backgroundImage:`linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px)`,backgroundSize:`${gridSize}px ${gridSize}px`,pointerEvents:'none',zIndex:1}}/>
+        )}
+
         {bf.length===0&&(
           <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'#1e1e1e',flexDirection:'column',gap:6,pointerEvents:'none'}}>
             <div>Drag cards from your hand to play them</div>
@@ -966,6 +1027,7 @@ export default function SoloBoard({ onBack }) {
             <div style={{fontSize:9,color:'#555',padding:'4px 10px',textTransform:'uppercase',letterSpacing:'.07em',borderBottom:'1px solid #222',marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ctx.card.name}</div>
             {ctx.src==='bf'&&<>
               <CM onClick={()=>doCtx('tap')}>↻ Tap / Untap</CM>
+              <CM onClick={()=>{setBF(b=>b.map(x=>x.id===ctx.card.id?{...x,tapped:true}:x));setCtx(null);t('Moved tapped')}}>↻ Move to BF Tapped</CM>
               <CM onClick={()=>doCtx('atk')}>⚔ Declare attacker</CM>
               <CM onClick={()=>doCtx('blk')}>🛡 Declare blocker</CM>
               <CM onClick={()=>doCtx('tgt')}>◎ Target</CM>
@@ -980,6 +1042,7 @@ export default function SoloBoard({ onBack }) {
               <CM onClick={()=>doCtx('hand')}>✋ Return to hand</CM>
               <CM onClick={()=>doCtx('top')}>📚 Top of library</CM>
               <CM onClick={()=>doCtx('cmd')}>⬡ Command zone</CM>
+              <CM onClick={()=>{const x=bf.find(z=>z.id===ctx.card.id);if(x){setBF(b=>b.filter(z=>z.id!==ctx.card.id));setLibrary(l=>[...l,{...x,id:'lib-'+Date.now()}]);t(x.name+' → bottom');log(x.name+' → bottom')};setCtx(null)}}>📚 Bottom of library</CM>
               {ctx?.card?.isCommander && <>
                 <Sep/>
                 <CM onClick={()=>{returnCommanderToZone();setCtx(null)}}>⬡ Return to CMD zone</CM>
@@ -1058,15 +1121,30 @@ export default function SoloBoard({ onBack }) {
               {/* LIBRARY */}
               {panel==='lib'&&(
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5,marginBottom:8}}>
-                    {[['Draw 1',()=>{drawN(1);setPanel(null)}],['Draw 3',()=>{drawN(3);setPanel(null)}],['Draw 7',()=>{drawN(7,true);setPanel(null)}],['Shuffle',()=>{shuffleLib();setPanel(null)}],['Top card',()=>lookTopN(1)],['Top 3',()=>lookTopN(3)]].map(([l,fn])=>(
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5,marginBottom:4}}>
+                    {[['Draw 1',()=>{drawN(1);setPanel(null)}],['Draw 3',()=>{drawN(3);setPanel(null)}],['Draw 7',()=>{drawN(7,true);setPanel(null)}],['Shuffle',()=>{shuffleLib();setPanel(null)}],['Top card',()=>lookTopN(1)],['Top 3',()=>lookTopN(3)],['Mill top',()=>{if(library.length>0){const milled=library[0];setLibrary(l=>l.slice(1));setGY(g=>[...g,{...milled,id:'z-'+Date.now()}]);t(milled.name+' milled → GY')}}]].map(([l,fn])=>(
                       <button key={l} onClick={fn} style={{padding:'8px',borderRadius:5,border:'1px solid #222',background:'#1a1a1a',color:'#888',fontSize:11,cursor:'pointer'}}>{l}</button>
                     ))}
                   </div>
-                  <div style={{fontSize:10,color:'#333',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:4}}>Contents ({library.length})</div>
-                  {library.map((c,i)=>(
-                    <ZoneCard key={c.id} card={c} onHand={()=>retrieveLib(i,'hand')} onBF={()=>retrieveLib(i,'bf')} />
-                  ))}
+                  {/* SEARCH */}
+                  <input
+                    value={libSearch} onChange={e=>setLibSearch(e.target.value)}
+                    placeholder="Search library..."
+                    style={{width:'100%',padding:'7px 10px',borderRadius:5,background:'#0d0d0d',border:'1px solid #222',color:'#ccc',fontSize:11,outline:'none',fontFamily:'inherit'}}
+                  />
+                  <div style={{fontSize:10,color:'#333',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:2}}>
+                    {libSearch ? `Results: ${library.filter(c=>c.name.toLowerCase().includes(libSearch.toLowerCase())).length}` : `Contents (${library.length})`}
+                  </div>
+                  {library
+                    .filter(c => !libSearch || c.name.toLowerCase().includes(libSearch.toLowerCase()))
+                    .map((c,i)=>{
+                      const realIdx = library.indexOf(c)
+                      return <ZoneCard key={c.id} card={c} onHand={()=>retrieveLib(realIdx,'hand')} onBF={()=>retrieveLib(realIdx,'bf')} />
+                    })
+                  }
+                  {libSearch && library.filter(c=>c.name.toLowerCase().includes(libSearch.toLowerCase())).length===0&&(
+                    <div style={{textAlign:'center',padding:'20px 0',fontSize:12,color:'#222'}}>Not found in library</div>
+                  )}
                 </div>
               )}
 
@@ -1117,6 +1195,40 @@ export default function SoloBoard({ onBack }) {
               <button onClick={()=>setPanel(null)} style={{background:'none',border:'none',color:'#555',fontSize:18,cursor:'pointer'}}>✕</button>
             </div>
             <TokenPanel deckTokens={deckTokens} onAdd={(tok,qty)=>addToken(tok,qty)} onClose={()=>setPanel(null)}/>
+          </div>
+        </>
+      )}
+
+      {/* MANA TRACKER */}
+      {showMana&&<ManaTracker onClose={()=>setShowMana(false)}/>}
+
+      {/* DICE ROLLER */}
+      {showDice&&(
+        <>
+          <div style={{position:'fixed',inset:0,zIndex:5999}} onClick={()=>setShowDice(false)}/>
+          <DiceRoller onClose={()=>setShowDice(false)} onLog={log}/>
+        </>
+      )}
+
+      {/* DECK MANAGER */}
+      {showDecks&&<DeckManager currentDeckId={currentDeckId} onLoad={loadDeck} onClose={()=>setShowDecks(false)}/>}
+
+      {/* BATTLEFIELD RIGHT-CLICK MENU */}
+      {bfCtxMenu&&(
+        <>
+          <div style={{position:'fixed',inset:0,zIndex:9997}} onClick={()=>setBfCtxMenu(null)}/>
+          <div style={{position:'fixed',left:Math.min(bfCtxMenu.x,window.innerWidth-200),top:Math.min(bfCtxMenu.y,window.innerHeight-340),background:'#1a1a1a',border:'1px solid #333',borderRadius:8,padding:4,zIndex:9998,minWidth:195,boxShadow:'0 8px 32px rgba(0,0,0,.9)'}}>
+            <div style={{fontSize:9,color:'#555',padding:'4px 10px',textTransform:'uppercase',letterSpacing:'.07em',borderBottom:'1px solid #222',marginBottom:2}}>Battlefield</div>
+            <CM onClick={()=>{setBF([]);setGY(g=>[...g,...bf.filter(c=>!c.isToken)]);setBfCtxMenu(null);t('All permanents → GY')}}>☠ Move All to Graveyard</CM>
+            <CM onClick={()=>{const nonTok=bf.filter(c=>!c.isToken);setBF([]);setLibrary(l=>[...shuffleCards(nonTok.map(c=>({...c,id:'lib-'+Date.now()+Math.random()}))), ...l]);setBfCtxMenu(null);t('All → library (shuffled)')}}>📚 Move All to Library</CM>
+            <CM onClick={()=>{const nonTok=bf.filter(c=>!c.isToken);setBF([]);setHand(h=>[...h,...nonTok.map(c=>({...c,id:'h-'+Date.now()+Math.random()}))]);setBfCtxMenu(null);t('All → hand')}}>✋ Move All to Hand</CM>
+            <Sep/>
+            <CM onClick={()=>{const cr=bf.filter(c=>c.type==='Creature'&&!c.isToken);setBF(b=>b.filter(c=>c.type!=='Creature'||c.isToken));setHand(h=>[...h,...cr.map(c=>({...c,id:'h-'+Date.now()+Math.random()}))]);setBfCtxMenu(null);t('All creatures → hand')}}>🐾 Move All Creatures to Hand</CM>
+            <CM onClick={()=>{const la=bf.filter(c=>c.type==='Land'&&!c.isToken);setBF(b=>b.filter(c=>c.type!=='Land'||c.isToken));setHand(h=>[...h,...la.map(c=>({...c,id:'h-'+Date.now()+Math.random()}))]);setBfCtxMenu(null);t('All lands → hand')}}>🌲 Move All Lands to Hand</CM>
+            <CM onClick={()=>{const ar=bf.filter(c=>c.type==='Artifact'&&!c.isToken);setBF(b=>b.filter(c=>c.type!=='Artifact'||c.isToken));setHand(h=>[...h,...ar.map(c=>({...c,id:'h-'+Date.now()+Math.random()}))]);setBfCtxMenu(null);t('All artifacts → hand')}}>⭕ Move All Artifacts to Hand</CM>
+            <Sep/>
+            <CM onClick={()=>{setBF(b=>b.map(c=>({...c,tapped:false})));setBfCtxMenu(null);t('All untapped')}}>↻ Untap All</CM>
+            <CM onClick={()=>{setBF(b=>b.map(c=>({...c,attacking:false,blocking:false,targeted:false})));setBfCtxMenu(null);t('Combat cleared')}}>⚔ Clear Combat</CM>
           </div>
         </>
       )}
