@@ -5,11 +5,17 @@ import CommanderZone from './CommanderZone.jsx'
 import ManaTracker from './ManaTracker.jsx'
 import DiceRoller from './DiceRoller.jsx'
 import DeckManager from './DeckManager.jsx'
-import { saveDeck, shuffleCards, parseDeckFromText } from '../utils/deckStorage.js'
+import SideboardPanel from './SideboardPanel.jsx'
+import { saveDeck, shuffleCards, parseDeckFromText, cleanCardName } from '../utils/deckStorage.js'
 import { getTokensForDeck } from '../utils/tokenRegistry.js'
 
-const SF = (name, ver='normal') =>
-  `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=${ver}`
+const SF = (rawName, ver='normal') => {
+  // Strip Moxfield set codes: "Forest (ZNR) 192" → "Forest"
+  const name = rawName
+    ? rawName.replace(/\s*\([A-Z0-9]+\)\s*\d*/g,'').replace(/\s*\*CMDR\*/gi,'').trim()
+    : rawName
+  return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=${ver}`
+}
 
 // ── PARSE DECK ───────────────────────────────────────────────
 function parseDeck(text) {
@@ -348,6 +354,7 @@ export default function SoloBoard({ onBack }) {
   const [gy,       setGY]       = useState([])
   const [exileZ,   setExileZ]   = useState([])
   const [cmdZ,     setCmdZ]     = useState([])
+  const [sideboard, setSideboard] = useState([])
   const [commander, setCommander] = useState(null)
   // commander shape: { name:string, castCount:number, inZone:boolean }
 
@@ -566,6 +573,21 @@ export default function SoloBoard({ onBack }) {
     t(`${qty}× ${tok.name}`); log(`Created ${qty}× ${tok.name} token${qty>1?'s':''}`)
   }
 
+  // ── SIDEBOARD SWAP ─────────────────────────────────────
+  function doSideboardSwap(sbCard, libCard) {
+    // Remove sbCard from sideboard, add to library
+    // Remove libCard from library
+    setSideboard(sb => sb.filter(c => c.id !== sbCard.id))
+    setLibrary(lib => {
+      const withoutLib = lib.filter(c => c.id !== libCard.id)
+      // Add sideboard card to library
+      return [...withoutLib, { ...sbCard, id:'lib-'+Date.now()+Math.random() }]
+    })
+    setPanel(null)
+    t(`Swapped: ${sbCard.name} in, ${libCard.name} out`)
+    log(`Sideboard swap: ${sbCard.name} ↔ ${libCard.name}`)
+  }
+
   // ── STACK ─────────────────────────────────────────────────
   function updateCardOnBF(id, updates) {
     setBF(b => b.map(c => c.id === id ? { ...c, ...updates } : c))
@@ -765,6 +787,7 @@ export default function SoloBoard({ onBack }) {
     setTurn(1); setPhaseVal(3); setCsub(null)
     setStack([]); setPriority('You'); setActLog([])
     setCurrentDeckId(deck.id || null)
+    setSideboard(deck.sideboard || [])
     // Set commander if declared
     if (deck.commander) {
       setCommander({ name: deck.commander, castCount: 0, inZone: true })
@@ -996,13 +1019,13 @@ export default function SoloBoard({ onBack }) {
           <div onClick={()=>setPanel('gy')}         style={{...ZP,color:gy.length>0?'#aaa':'#555'}}>Graveyard ({gy.length})</div>
           <div onClick={()=>setPanel('exile')}      style={{...ZP,color:exileZ.length>0?'#aaa':'#555'}}>Exile ({exileZ.length})</div>
           <div onClick={()=>setPanel('cmd')}        style={{...ZP,color:cmdZ.length>0?'#a78bfa':'#555'}}>Command ({cmdZ.length})</div>
+          {sideboard.length>0&&<div onClick={()=>setPanel('sideboard')} style={{...ZP,color:'#f59e0b',borderColor:'#2a1e00'}}>Sideboard ({sideboard.length})</div>}
         </div>
       </div>
 
       {/* ── COMMANDER ZONE — always visible bottom-right of BF ── */}
       <CommanderZone
         commander={commander}
-        onSetCommander={setCommanderCard}
         onCast={castCommander}
         onReturnToZone={returnCommanderToZone}
         onSendToBF={commanderToBF}
@@ -1088,7 +1111,7 @@ export default function SoloBoard({ onBack }) {
                  panel==='cmd'?`Command Zone (${cmdZ.length})`:
                  panel==='lib'?`Library (${library.length})`:
                  panel==='topN'?'Top of Library':
-                 panel==='import'?'Import Deck':'Zone'}
+                 panel==='import'?'Import Deck':panel==='sideboard'?`Sideboard (${sideboard.length})`:'Zone'}
               </span>
               <button onClick={()=>setPanel(null)} style={{background:'none',border:'none',color:'#555',fontSize:18,cursor:'pointer'}}>✕</button>
             </div>
@@ -1184,6 +1207,16 @@ export default function SoloBoard({ onBack }) {
                 </div>
               )}
 
+              {/* SIDEBOARD */}
+              {panel==='sideboard'&&(
+                <SideboardPanel
+                  sideboard={sideboard}
+                  library={library}
+                  onSwap={doSideboardSwap}
+                  onClose={()=>setPanel(null)}
+                />
+              )}
+
               {/* GY / EXILE / CMD */}
               {['gy','exile','cmd'].includes(panel)&&(
                 panelCards.length===0?(
@@ -1216,7 +1249,16 @@ export default function SoloBoard({ onBack }) {
       )}
 
       {/* MANA TRACKER */}
-      {showMana&&<ManaTracker onClose={()=>setShowMana(false)} onEmptyNormal={fn=>{emptyTempMana.current=fn}}/>}
+      {/* MANA TRACKER — persistent left panel */}
+      {showMana&&(
+        <>
+          <div style={{position:'fixed',inset:0,zIndex:5998,pointerEvents:'none'}}/>
+          <div style={{position:'fixed',left:0,top:42,bottom:0,width:320,background:'#111',borderRight:'1px solid #2a2a2a',zIndex:5999,display:'flex',flexDirection:'column',boxShadow:'4px 0 24px rgba(0,0,0,.8)',animation:'manaIn .2s ease'}}>
+            <style>{`@keyframes manaIn{from{transform:translateX(-100%)}to{transform:translateX(0)}}`}</style>
+            <ManaTracker onClose={()=>setShowMana(false)} onEmptyNormal={fn=>{emptyTempMana.current=fn}}/>
+          </div>
+        </>
+      )}
 
       {/* DICE ROLLER */}
       {showDice&&(
