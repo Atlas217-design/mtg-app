@@ -6,6 +6,7 @@ import ManaTracker from './ManaTracker.jsx'
 import DiceRoller from './DiceRoller.jsx'
 import DeckManager from './DeckManager.jsx'
 import SideboardPanel from './SideboardPanel.jsx'
+import ViewCard from './ViewCard.jsx'
 import { saveDeck, shuffleCards, parseDeckFromText, cleanCardName } from '../utils/deckStorage.js'
 import { getTokensForDeck } from '../utils/tokenRegistry.js'
 
@@ -135,7 +136,7 @@ function CardPreview({ card }) {
   return (
     <div style={{
       position:'fixed', bottom:16, right:16, zIndex:8000,
-      width:220, borderRadius:12,
+      width:275, borderRadius:12,
       boxShadow:'0 16px 48px rgba(0,0,0,.95)',
       border:'1px solid #444',
       overflow:'hidden',
@@ -391,7 +392,9 @@ export default function SoloBoard({ onBack }) {
   const [showGrid,   setShowGrid]  = useState(false)
   const [gridSize,   setGridSize]  = useState(20) // px — subtle alignment
   const [currentDeckId, setCurrentDeckId] = useState(null)
-  const [bfCtxMenu,  setBfCtxMenu] = useState(null) // {x,y} for BF right-click
+  const [bfCtxMenu,  setBfCtxMenu] = useState(null)
+  const [viewCardName, setViewCardName] = useState(null) // "View Card" panel
+  const [bfZoom,     setBfZoom]     = useState(1.0) // battlefield zoom
   const [importTxt, setImportTxt]= useState('')
   const [hovered,   setHovered]  = useState(null) // card object for preview
   const [topCards,  setTopCards] = useState([])
@@ -796,10 +799,11 @@ export default function SoloBoard({ onBack }) {
     setStack([]); setPriority('You'); setActLog([])
     setCurrentDeckId(deck.id || null)
     setSideboard(deck.sideboard || [])
-    // Set commander if declared
-    if (deck.commander) {
-      setCommander({ name: deck.commander, castCount: 0, inZone: true })
+    // Set commander from deck — always reset state cleanly
+    if (deck.commander && deck.commander.trim()) {
+      setCommander({ name: deck.commander.trim(), castCount: 0, inZone: true })
       log(`Commander: ${deck.commander}`)
+      t(`Commander: ${deck.commander}`)
     } else {
       setCommander(null)
     }
@@ -820,7 +824,9 @@ export default function SoloBoard({ onBack }) {
   // ── RENDER ────────────────────────────────────────────────
   const lifeCol=life<=10?'#ef4444':life<=20?'#f59e0b':'#e0e0e0'
   const panelCards=panel==='gy'?gy:panel==='exile'?exileZ:panel==='cmd'?cmdZ:[]
-  const hoveredCard = hovered ? (bf.find(c=>c.id===hovered)||hand.find(c=>c.id===hovered)) : null
+  const hoveredCardObj = hovered
+    ? (bf.find(x=>x.id===hovered) || hand.find(x=>x.id===hovered))
+    : null
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#1a1a1a',overflow:'hidden',fontFamily:'system-ui,sans-serif',color:'#e0e0e0',userSelect:'none'}}>
@@ -870,7 +876,11 @@ export default function SoloBoard({ onBack }) {
           <button onClick={()=>setShowDice(s=>!s)} style={AB}>🎲 Dice</button>
           <button onClick={()=>setShowDecks(true)} style={AB}>📚 Decks</button>
           <div style={{display:'flex',gap:0,border:'1px solid '+(showGrid?'#2a2050':'#333'),borderRadius:4,overflow:'hidden'}}>
-            <button onClick={()=>setShowGrid(s=>!s)} style={{...AB,border:'none',borderRadius:0,borderRight:'1px solid #222',color:showGrid?'#a78bfa':'#555',padding:'5px 8px'}}>
+            <button onClick={()=>setBfZoom(z=>Math.min(2,+(z+.1).toFixed(1)))} style={{...AB,padding:'5px 7px'}} title="Zoom in">🔍+</button>
+          <span style={{fontSize:10,color:'#444',minWidth:28,textAlign:'center'}}>{Math.round(bfZoom*100)}%</span>
+          <button onClick={()=>setBfZoom(z=>Math.max(.5,+(z-.1).toFixed(1)))} style={{...AB,padding:'5px 7px'}} title="Zoom out">🔍−</button>
+          <button onClick={()=>setBfZoom(1)} style={{...AB,padding:'5px 7px',fontSize:9}} title="Reset zoom">1:1</button>
+          <button onClick={()=>setShowGrid(s=>!s)} style={{...AB,border:'none',borderRadius:0,borderRight:'1px solid #222',color:showGrid?'#a78bfa':'#555',padding:'5px 8px'}}>
               {showGrid?'⊞ Grid ON':'⊟ Grid OFF'}
             </button>
             {showGrid&&(
@@ -906,6 +916,13 @@ export default function SoloBoard({ onBack }) {
 
       {/* ── BATTLEFIELD ── */}
       <div ref={bfRef} style={{flex:1,position:'relative',overflow:'hidden',background:'#141414',cursor:'default'}} onClick={()=>{setCtx(null);setShowCtrs(false)}}>
+        {/* ZOOM WRAPPER */}
+        <div style={{
+          position:'absolute',inset:0,
+          transform:`scale(${bfZoom})`,
+          transformOrigin:'top left',
+          width:`${100/bfZoom}%`,height:`${100/bfZoom}%`,
+        }}>
         {/* GRID OVERLAY */}
         {showGrid&&(
           <div style={{position:'absolute',inset:0,backgroundImage:`linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px)`,backgroundSize:`${gridSize}px ${gridSize}px`,pointerEvents:'none',zIndex:1}}/>
@@ -1026,12 +1043,13 @@ export default function SoloBoard({ onBack }) {
           <div onClick={()=>setPanel('lib')}       style={ZP}>Library ({library.length})</div>
           <div onClick={()=>setPanel('gy')}         style={{...ZP,color:gy.length>0?'#aaa':'#555'}}>Graveyard ({gy.length})</div>
           <div onClick={()=>setPanel('exile')}      style={{...ZP,color:exileZ.length>0?'#aaa':'#555'}}>Exile ({exileZ.length})</div>
-          <div onClick={()=>setPanel('cmd')}        style={{...ZP,color:cmdZ.length>0?'#a78bfa':'#555'}}>Command ({cmdZ.length})</div>
+          {cmdZ.length>0&&<div onClick={()=>setPanel('cmd')} style={{...ZP,color:'#a78bfa'}}>Command ({cmdZ.length})</div>}
           {sideboard.length>0&&<div onClick={()=>setPanel('sideboard')} style={{...ZP,color:'#f59e0b',borderColor:'#2a1e00'}}>Sideboard ({sideboard.length})</div>}
 
         </div>
       </div>
 
+        </div>{/* end zoom wrapper */}
       {/* ── COMMANDER PANEL — fixed bottom-right, full card art ── */}
       {commander&&(
         <CommanderZone
@@ -1056,9 +1074,9 @@ export default function SoloBoard({ onBack }) {
       )}
 
       {/* ── CARD HOVER PREVIEW — shifted left when commander panel is showing ── */}
-      {hoveredCard&&(
+      {hoveredCardObj&&(
         <div style={{position:'fixed',bottom:16,right:commander?174:16,zIndex:8000,pointerEvents:'none',transition:'right .15s'}}>
-          <CardPreview card={hoveredCard}/>
+          <CardPreview card={hoveredCardObj}/>
         </div>
       )}
 
@@ -1081,7 +1099,43 @@ export default function SoloBoard({ onBack }) {
           <div style={{position:'fixed',inset:0,zIndex:9998}} onClick={()=>setCtx(null)}/>
           <div style={{position:'fixed',left:Math.min(ctx.x,window.innerWidth-195),top:Math.min(ctx.y,window.innerHeight-420),background:'#1a1a1a',border:'1px solid #333',borderRadius:8,padding:4,zIndex:9999,minWidth:190,boxShadow:'0 8px 32px rgba(0,0,0,.9)'}}>
             <div style={{fontSize:9,color:'#555',padding:'4px 10px',textTransform:'uppercase',letterSpacing:'.07em',borderBottom:'1px solid #222',marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ctx.card.name}</div>
+            {ctx.src==='hand'&&<>
+              <CM onClick={()=>{
+                const card=hand.find(x=>x.id===ctx.card.id)
+                if(card){setHand(h=>h.filter(x=>x.id!==ctx.card.id));setBF(b=>[...b,{...card,id:'bf-'+Date.now(),x:100+Math.random()*200,y:60+Math.random()*100,tapped:false,attacking:false,blocking:false,targeted:false,counters:0}]);t(card.name+' → BF')}
+                setCtx(null)
+              }}>→ Move to Battlefield</CM>
+              <CM onClick={()=>{
+                const card=hand.find(x=>x.id===ctx.card.id)
+                if(card){setHand(h=>h.filter(x=>x.id!==ctx.card.id));setBF(b=>[...b,{...card,id:'bf-'+Date.now(),x:100+Math.random()*200,y:60+Math.random()*100,tapped:false,attacking:false,blocking:false,targeted:false,counters:0,flipped:true}]);t(card.name+' → BF Flipped')}
+                setCtx(null)
+              }}>→ Move to BF Flipped</CM>
+              <CM onClick={()=>{
+                const card=hand.find(x=>x.id===ctx.card.id)
+                if(card){setHand(h=>h.filter(x=>x.id!==ctx.card.id));setBF(b=>[...b,{...card,id:'bf-'+Date.now(),x:100+Math.random()*200,y:60+Math.random()*100,tapped:true,attacking:false,blocking:false,targeted:false,counters:0}]);t(card.name+' → BF Tapped')}
+                setCtx(null)
+              }}>→ Move to BF Tapped</CM>
+              <Sep/>
+              <CM onClick={()=>{
+                const card=hand.find(x=>x.id===ctx.card.id)
+                if(card){setHand(h=>h.filter(x=>x.id!==ctx.card.id));setLibrary(l=>[{...card,id:'lib-'+Date.now()},...l]);t(card.name+' → top of library')}
+                setCtx(null)
+              }}>📚 Move to Top of Library</CM>
+              <CM onClick={()=>{
+                const card=hand.find(x=>x.id===ctx.card.id)
+                if(card){setHand(h=>h.filter(x=>x.id!==ctx.card.id));setLibrary(l=>[...l,{...card,id:'lib-'+Date.now()}]);t(card.name+' → bottom of library')}
+                setCtx(null)
+              }}>📚 Move to Bottom of Library</CM>
+              <Sep/>
+              <CM onClick={()=>doCtx('gy')}>☠ Move to Graveyard</CM>
+              <CM onClick={()=>doCtx('exile')}>✦ Move to Exile</CM>
+              <CM onClick={()=>doCtx('cmd')}>⬡ Command zone</CM>
+              <Sep/>
+              <CM onClick={()=>{setViewCardName(ctx.card.name);setCtx(null)}}>🔍 View Card</CM>
+            </>}
             {ctx.src==='bf'&&<>
+              <CM onClick={()=>doCtx('tap')}>↻ Tap / Untap</CM>
+              <CM onClick={()=>{setBF(b=>b.map(x=>x.id===ctx.card.id?{...x,tapped:true}:x));setCtx(null);t('Moved tapped')}}>↻ Move to BF Tapped</CM>
               <CM onClick={()=>doCtx('tap')}>↻ Tap / Untap</CM>
               <CM onClick={()=>{setBF(b=>b.map(x=>x.id===ctx.card.id?{...x,tapped:true}:x));setCtx(null);t('Moved tapped')}}>↻ Move to BF Tapped</CM>
               <CM onClick={()=>doCtx('atk')}>⚔ Declare attacker</CM>
@@ -1093,6 +1147,7 @@ export default function SoloBoard({ onBack }) {
               <CM onClick={()=>doCtx('+2ctr')}>＋＋ Add 2 counters</CM>
               <CM onClick={()=>doCtx('copy')}>⎘ Copy / Create token</CM>
               <CM onClick={()=>doCtx('modify')}>✏ Modify card</CM>
+              <CM onClick={()=>{setViewCardName(ctx.card.name);setCtx(null)}}>🔍 View Card</CM>
               <Sep/>
               <CM onClick={()=>doCtx('stack')}>⚡ Add to stack</CM>
               <CM onClick={()=>doCtx('hand')}>✋ Return to hand</CM>
@@ -1107,7 +1162,10 @@ export default function SoloBoard({ onBack }) {
             <Sep/>
             <CM onClick={()=>doCtx('gy')}>☠ To graveyard</CM>
             <CM onClick={()=>doCtx('exile')}>✦ Exile</CM>
-            {ctx.src==='bf'&&<><Sep/><CM danger onClick={()=>doCtx('destroy')}>✕ Destroy</CM></>}
+            {
+            {ctx.src==='bf'&&<>
+              <CM onClick={()=>doCtx('tap')}>↻ Tap / Untap</CM>
+              <CM onClick={()=>{setBF(b=>b.map(x=>x.id===ctx.card.id?{...x,tapped:true}:x));setCtx(null);t('Moved tapped')}}>↻ Move to BF Tapped</CM><Sep/><CM danger onClick={()=>doCtx('destroy')}>✕ Destroy</CM></>}
           </div>
         </>
       )}
@@ -1311,6 +1369,9 @@ export default function SoloBoard({ onBack }) {
           </div>
         </>
       )}
+
+      {/* VIEW CARD MODAL */}
+      {viewCardName&&<ViewCard cardName={viewCardName} onClose={()=>setViewCardName(null)}/>}
 
       {/* CARD MODIFY MODAL */}
       {modifyCard && (
