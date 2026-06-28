@@ -1016,12 +1016,10 @@ export default function SoloBoard({ onBack }) {
             return (
               <div key={card.id}
                 onMouseDown={e=>handDown(e,card)}
-                onMouseEnter={()=>setHovered(card.id)}
-                onMouseLeave={()=>setHovered(null)}
                 onContextMenu={e=>{e.preventDefault();setCtx({x:e.clientX,y:e.clientY,card,src:'hand'})}}
                 style={{flexShrink:0,width:138,height:193,borderRadius:8,border:'1.5px solid #3a3a3a',background:'#0d1a0d',cursor:'grab',overflow:'hidden',position:'relative',transition:'transform .12s,border-color .1s,box-shadow .1s',boxShadow:'0 3px 10px rgba(0,0,0,.7)'}}
-                onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-18px)';e.currentTarget.style.borderColor='#a78bfa';e.currentTarget.style.boxShadow='0 16px 32px rgba(0,0,0,.9),0 0 0 1px rgba(167,139,250,.4)'}}
-                onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.borderColor='#3a3a3a';e.currentTarget.style.boxShadow='0 3px 10px rgba(0,0,0,.7)'}}>
+                onMouseEnter={e=>{setHovered(card.id);e.currentTarget.style.transform='translateY(-18px)';e.currentTarget.style.borderColor='#a78bfa'}}
+                onMouseLeave={e=>{setHovered(null);e.currentTarget.style.transform='';e.currentTarget.style.borderColor='#3a3a3a'}}>
                 {!err?(
                   <img src={SF(card.name)} alt={card.name} draggable={false}
                     style={{width:'100%',height:'100%',objectFit:'cover',display:'block',pointerEvents:'none'}}
@@ -1162,7 +1160,6 @@ export default function SoloBoard({ onBack }) {
             <Sep/>
             <CM onClick={()=>doCtx('gy')}>☠ To graveyard</CM>
             <CM onClick={()=>doCtx('exile')}>✦ Exile</CM>
-            {
             {ctx.src==='bf'&&<>
               <CM onClick={()=>doCtx('tap')}>↻ Tap / Untap</CM>
               <CM onClick={()=>{setBF(b=>b.map(x=>x.id===ctx.card.id?{...x,tapped:true}:x));setCtx(null);t('Moved tapped')}}>↻ Move to BF Tapped</CM><Sep/><CM danger onClick={()=>doCtx('destroy')}>✕ Destroy</CM></>}
