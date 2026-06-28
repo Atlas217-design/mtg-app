@@ -380,6 +380,12 @@ export default function SoloBoard({ onBack }) {
   const [showStack, setShowStack]= useState(false)
   const [showCtrs,   setShowCtrs]  = useState(false)
   const [showMana,   setShowMana]  = useState(false)
+  const [manaPool,   setManaPool]  = useState({
+    W:{normal:0,persistent:0}, U:{normal:0,persistent:0},
+    B:{normal:0,persistent:0}, R:{normal:0,persistent:0},
+    G:{normal:0,persistent:0}, C:{normal:0,persistent:0},
+    S:{normal:0,persistent:0}, X:{normal:0,persistent:0},
+  })
   const [showDice,   setShowDice]  = useState(false)
   const [showDecks,  setShowDecks] = useState(false)
   const [showGrid,   setShowGrid]  = useState(false)
@@ -412,16 +418,18 @@ export default function SoloBoard({ onBack }) {
   }
 
   // ── PHASE ─────────────────────────────────────────────────
-  // Temp mana ref so ManaTracker can trigger clear
-  const emptyTempMana = React.useRef(null)
-
   function goPhase(i) {
     setPhaseVal(i)
     setCsub(i===4?0:null)
     t(PHASES[i])
     log(`Phase → ${PHASES[i]}`)
-    // Auto-clear temp mana on phase change (can be suppressed per card effect)
-    if (emptyTempMana.current) emptyTempMana.current()
+    // Auto-clear temporary mana on phase change (CR 106.4)
+    // Persistent mana is untouched — it carries between phases
+    setManaPool(p => {
+      const next = {}
+      Object.keys(p).forEach(k => { next[k] = {normal:0, persistent:p[k].persistent||0} })
+      return next
+    })
   }
 
   // ── END TURN ──────────────────────────────────────────────
@@ -1020,30 +1028,33 @@ export default function SoloBoard({ onBack }) {
           <div onClick={()=>setPanel('exile')}      style={{...ZP,color:exileZ.length>0?'#aaa':'#555'}}>Exile ({exileZ.length})</div>
           <div onClick={()=>setPanel('cmd')}        style={{...ZP,color:cmdZ.length>0?'#a78bfa':'#555'}}>Command ({cmdZ.length})</div>
           {sideboard.length>0&&<div onClick={()=>setPanel('sideboard')} style={{...ZP,color:'#f59e0b',borderColor:'#2a1e00'}}>Sideboard ({sideboard.length})</div>}
+          {/* COMMANDER — inline in zone bar */}
+          {commander&&(
+            <CommanderZone
+              commander={commander}
+              onCastFromZone={castCommander}
+              onReturnToZone={returnCommanderToZone}
+              onPutOntoBF={commanderToBF}
+              onCastFromHand={()=>{
+                // Cast from hand — no tax, doesn't increment castCount
+                const newCard={id:'cmd-bf-'+Date.now(),name:commander.name,type:'Creature',col:'cg',art:'⬡',pt:'',x:200,y:60,tapped:false,attacking:false,blocking:false,targeted:false,counters:0,isCommander:true}
+                setBF(b=>[...b,newCard])
+                setCommander(c=>c?{...c,inZone:false}:c)
+                t(commander.name+' cast from hand (no tax)'); log(commander.name+' cast from hand — no tax')
+              }}
+              onContextMenu={(e)=>{
+                if(!commander)return
+                e.preventDefault()
+                const fakeCard={id:'commander',name:commander.name,isCommander:true,type:'Creature',col:'cg',art:'⬡',pt:''}
+                setCtx({x:e.clientX,y:e.clientY,card:fakeCard,src:'cmd'})
+              }}
+            />
+          )}
         </div>
       </div>
 
-      {/* ── COMMANDER ZONE — always visible bottom-right of BF ── */}
-      <CommanderZone
-        commander={commander}
-        onCast={castCommander}
-        onReturnToZone={returnCommanderToZone}
-        onSendToBF={commanderToBF}
-        onContextMenu={(e) => {
-          if (!commander) return
-          e.preventDefault()
-          const fakeCard = { id:'commander', name:commander.name, isCommander:true, type:'Creature', col:'cg', art:'⬡', pt:'' }
-          setCtx({ x:e.clientX, y:e.clientY, card:fakeCard, src:'cmd' })
-        }}
-      />
-
       {/* ── CARD HOVER PREVIEW (bottom-right) ── */}
-      {hoveredCard && !commander && <CardPreview card={hoveredCard} />}
-      {hoveredCard && commander && (
-        <div style={{position:'fixed',bottom:16,right:150,zIndex:8000,pointerEvents:'none'}}>
-          <CardPreview card={hoveredCard} />
-        </div>
-      )}
+      {hoveredCard && <CardPreview card={hoveredCard} />}
 
       {/* ── STACK TRACKER ── */}
       {showStack&&(
@@ -1249,13 +1260,17 @@ export default function SoloBoard({ onBack }) {
       )}
 
       {/* MANA TRACKER */}
-      {/* MANA TRACKER — persistent left panel */}
+      {/* MANA TRACKER — right-side panel, state lives in SoloBoard so it persists */}
       {showMana&&(
         <>
-          <div style={{position:'fixed',inset:0,zIndex:5998,pointerEvents:'none'}}/>
-          <div style={{position:'fixed',left:0,top:42,bottom:0,width:320,background:'#111',borderRight:'1px solid #2a2a2a',zIndex:5999,display:'flex',flexDirection:'column',boxShadow:'4px 0 24px rgba(0,0,0,.8)',animation:'manaIn .2s ease'}}>
-            <style>{`@keyframes manaIn{from{transform:translateX(-100%)}to{transform:translateX(0)}}`}</style>
-            <ManaTracker onClose={()=>setShowMana(false)} onEmptyNormal={fn=>{emptyTempMana.current=fn}}/>
+          <div style={{position:'fixed',inset:0,zIndex:5998,background:'rgba(0,0,0,.3)'}} onClick={()=>setShowMana(false)}/>
+          <div style={{position:'fixed',right:0,top:42,bottom:0,width:300,zIndex:5999,display:'flex',flexDirection:'column',boxShadow:'-4px 0 24px rgba(0,0,0,.8)',animation:'manaSlide .2s ease'}}>
+            <style>{`@keyframes manaSlide{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+            <ManaTracker
+              manaPool={manaPool}
+              onPoolChange={setManaPool}
+              onClose={()=>setShowMana(false)}
+            />
           </div>
         </>
       )}
